@@ -1,2 +1,3 @@
-# SpeakEasy
-Recognizes AI Scam Voice Calls
+# CatFish
+
+Prevents AI Catfishing on Dating Apps
