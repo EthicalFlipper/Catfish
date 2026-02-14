@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Catfish (DateGuard)
 
 A Chrome extension + API for detecting catfishing on dating apps. Users record tab audio, upload images, and paste text for AI-powered analysis.
@@ -111,3 +112,8 @@ cd apps/api && uvicorn app.main:app --reload
 - **Extension**: React 18, TypeScript, Vite, Chrome MV3
 - **API**: FastAPI, Pydantic, Python 3.11+
 - **Future**: OpenAI Whisper, GPT-4o-mini
+=======
+# CatFish
+
+Prevents AI Catfishing on Dating Apps
+>>>>>>> f20009ac8d60d9436f984b4d15a2553a9c15bff1
