@@ -1,31 +1,28 @@
-# Catfish Project Rules
+You are helping build "Catfish" (DateGuard) — a Chrome extension that is DATING-APP SPECIFIC.
 
-## Project Context
-Building a Chrome extension + FastAPI backend for dating app catfish detection.
-No dating app API integrations - users provide inputs manually.
+New priority feature:
+- Implement "Analyze This Thread" on Tinder Web via a content script (DOM extraction).
+- User must click a button to import the thread (user-initiated). Do not background scrape.
 
-## Structure
-- apps/extension/ = Chrome MV3 extension (React + TS + Vite)
-- apps/api/ = FastAPI backend (Python 3.11+)
+Hard constraints:
+- NO Tinder/Hinge/Bumble API integration. No OAuth. No network interception.
+- NO scraping audio URLs. No blob URL extraction. Audio recording will be done later via tabCapture/offscreen.
+- NO model training/fine-tuning. Pretrained + APIs only.
+- Keep changes minimal and demo-proof. Avoid unnecessary dependencies.
 
-## Extension Guidelines
-- Use React functional components with hooks
-- TypeScript strict mode enabled
-- Use chrome.* APIs for extension features
-- Side panel is the main UI surface
-- Service worker handles background tasks
+Implementation rules:
+- Use a Tinder site adapter content script that:
+  - Detects chat thread UI
+  - Injects a visible "Analyze this thread" button
+  - Extracts last N messages (e.g., 30) with speaker labels (You / Match)
+  - Sends a THREAD_IMPORT message to the extension (background or directly to UI)
+  - Use MutationObserver to survive SPA re-renders
+  - Prefer accessible/semantic selectors (role/aria) and provide fallbacks if selectors fail
+- Extension UI (Text tab) must:
+  - Receive THREAD_IMPORT and auto-fill the textarea
+  - Optionally auto-run /analyze/text one time per import
+  - Show results: risk score/category, flags, recommended action, suggested reply w/ copy button
 
-## API Guidelines
-- FastAPI with Pydantic models
-- Async endpoints preferred
-- CORS must allow chrome-extension://*
-- Use settings.py for env config
+Backend rules (FastAPI):
+- Keep strict JSON contracts; clear error messages; CORS enabled for localhost + chrome-extension://*
 
-## Code Style
-- Extension: TypeScript, React best practices
-- API: Python 3.11+, type hints, async/await
-- Keep files focused and small
-- Document complex logic
-
-## Current Focus
-MVP scaffolding complete. Next: implement tabCapture recording.

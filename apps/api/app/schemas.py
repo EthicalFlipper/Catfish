@@ -39,16 +39,19 @@ class ImageAnalysisResponse(BaseModel):
     reverse_search_results: Optional[List[str]] = None
 
 
-# Text analysis (placeholder)
+# Text analysis
 class TextAnalysisRequest(BaseModel):
     """Request for text analysis"""
     text: str
-    context: Optional[str] = None  # e.g., "tinder chat", "hinge profile"
+    user_notes: Optional[str] = None
 
 
 class TextAnalysisResponse(BaseModel):
     """Response from text analysis"""
-    analysis: str
-    risk_score: float
+    ai_score: int  # 0-100, likelihood text is AI-generated
+    risk_score: int  # 0-100, likelihood of scam/danger
+    category: str  # "safe" | "suspicious" | "scam_likely"
     flags: List[str]
-    suggestions: List[str]
+    explanation: str
+    recommended_action: str
+    suggested_reply: str
