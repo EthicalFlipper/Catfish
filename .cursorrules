@@ -1,0 +1,31 @@
+# Catfish Project Rules
+
+## Project Context
+Building a Chrome extension + FastAPI backend for dating app catfish detection.
+No dating app API integrations - users provide inputs manually.
+
+## Structure
+- apps/extension/ = Chrome MV3 extension (React + TS + Vite)
+- apps/api/ = FastAPI backend (Python 3.11+)
+
+## Extension Guidelines
+- Use React functional components with hooks
+- TypeScript strict mode enabled
+- Use chrome.* APIs for extension features
+- Side panel is the main UI surface
+- Service worker handles background tasks
+
+## API Guidelines
+- FastAPI with Pydantic models
+- Async endpoints preferred
+- CORS must allow chrome-extension://*
+- Use settings.py for env config
+
+## Code Style
+- Extension: TypeScript, React best practices
+- API: Python 3.11+, type hints, async/await
+- Keep files focused and small
+- Document complex logic
+
+## Current Focus
+MVP scaffolding complete. Next: implement tabCapture recording.

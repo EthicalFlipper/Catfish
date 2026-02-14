@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Catfish - DateGuard",
+  "version": "0.1.0",
+  "description": "Analyze dating app conversations, images, and voice notes for authenticity",
+  "permissions": [
+    "activeTab",
+    "sidePanel",
+    "storage",
+    "tabCapture",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://tinder.com/*",
+    "https://hinge.co/*",
+    "https://bumble.com/*",
+    "https://*.okcupid.com/*"
+  ],
+  "action": {
+    "default_title": "Open Catfish"
+  },
+  "side_panel": {
+    "default_path": "index.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}
