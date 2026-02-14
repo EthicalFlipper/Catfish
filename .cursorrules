@@ -1,28 +1,39 @@
 You are helping build "Catfish" (DateGuard) — a Chrome extension that is DATING-APP SPECIFIC.
 
-New priority feature:
-- Implement "Analyze This Thread" on Tinder Web via a content script (DOM extraction).
-- User must click a button to import the thread (user-initiated). Do not background scrape.
+Current features:
+- "Analyze This Thread" on Tinder Web via content script (DOM extraction)
+- "Capture Profile" on Tinder Web via captureVisibleTab (screenshot analysis)
+- "Record Tab Audio" via tabCapture + offscreen document (voice note analysis)
 
 Hard constraints:
 - NO Tinder/Hinge/Bumble API integration. No OAuth. No network interception.
-- NO scraping audio URLs. No blob URL extraction. Audio recording will be done later via tabCapture/offscreen.
+- NO scraping media URLs. Image capture uses ONLY chrome.tabs.captureVisibleTab.
+- NO scraping audio URLs. Audio recording uses ONLY tabCapture + offscreen.
 - NO model training/fine-tuning. Pretrained + APIs only.
 - Keep changes minimal and demo-proof. Avoid unnecessary dependencies.
 
-Implementation rules:
-- Use a Tinder site adapter content script that:
-  - Detects chat thread UI
-  - Injects a visible "Analyze this thread" button
-  - Extracts last N messages (e.g., 30) with speaker labels (You / Match)
-  - Sends a THREAD_IMPORT message to the extension (background or directly to UI)
-  - Use MutationObserver to survive SPA re-renders
-  - Prefer accessible/semantic selectors (role/aria) and provide fallbacks if selectors fail
-- Extension UI (Text tab) must:
-  - Receive THREAD_IMPORT and auto-fill the textarea
-  - Optionally auto-run /analyze/text one time per import
-  - Show results: risk score/category, flags, recommended action, suggested reply w/ copy button
+Content script (Tinder):
+- Injects TWO buttons on tinder.com:
+  1. "🐱 Analyze thread" - extracts chat messages, sends to Text tab
+  2. "📸 Capture profile" - triggers captureVisibleTab, sends to Image tab
+- Uses MutationObserver to survive SPA re-renders
+- User-initiated only (button click). No background scraping.
 
-Backend rules (FastAPI):
-- Keep strict JSON contracts; clear error messages; CORS enabled for localhost + chrome-extension://*
+Extension UI:
+- Text tab: receives THREAD_IMPORT, auto-fills textarea, analyzes via /analyze/text
+- Image tab: receives screenshot from storage, previews, analyzes via /analyze/image
+- Audio tab: Record/Stop buttons, records tab audio via offscreen doc, analyzes via /analyze/audio
+- All tabs show: scores, flags, explanation, recommended action
 
+Audio recording architecture (MV3-safe):
+- Background gets stream ID via chrome.tabCapture.getMediaStreamId()
+- Offscreen document uses MediaRecorder to capture audio
+- Audio blob sent to backend for transcription + analysis
+- Requires ffmpeg on server for audio conversion
+
+Backend (FastAPI):
+- POST /analyze/text - AI + scam detection scores, suggested reply
+- POST /analyze/image - catfish + AI-generated scores, reverse search steps
+- POST /analyze/audio - Whisper transcription + scam/AI voice analysis (requires ffmpeg)
+- Strict JSON contracts; clear error messages; CORS for localhost + chrome-extension://*
+- Falls back to mock response if OPENAI_API_KEY missing

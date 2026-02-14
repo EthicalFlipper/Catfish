@@ -11,11 +11,7 @@
     "offscreen"
   ],
   "host_permissions": [
-    "https://tinder.com/*",
-    "https://*.tinder.com/*",
-    "https://hinge.co/*",
-    "https://bumble.com/*",
-    "https://*.okcupid.com/*"
+    "<all_urls>"
   ],
   "action": {
     "default_title": "Open Catfish"

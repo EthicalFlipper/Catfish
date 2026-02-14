@@ -10,33 +10,29 @@ class HealthResponse(BaseModel):
     ok: bool
 
 
-# Audio analysis (placeholder)
-class AudioAnalysisRequest(BaseModel):
-    """Request for audio analysis - to be implemented"""
-    audio_url: Optional[str] = None
-    # audio_data will be handled via multipart form
-
-
+# Audio analysis
 class AudioAnalysisResponse(BaseModel):
     """Response from audio analysis"""
-    transcript: str
-    analysis: str
-    risk_score: float  # 0-1, higher = more suspicious
+    risk_score: int  # 0-100
+    category: str  # "safe" | "suspicious" | "scam_likely"
     flags: List[str]
+    explanation: str
+    recommended_action: str
+    suggested_reply: str
+    ai_voice_score: int  # 0-100, likelihood voice is AI-generated
+    ai_voice_rationale: str
+    transcript: str
 
 
-# Image analysis (placeholder)
-class ImageAnalysisRequest(BaseModel):
-    """Request for image analysis - to be implemented"""
-    image_url: Optional[str] = None
-
-
+# Image analysis
 class ImageAnalysisResponse(BaseModel):
     """Response from image analysis"""
-    analysis: str
-    risk_score: float
+    catfish_score: int  # 0-100, likelihood image is stolen/fake
+    ai_generated_score: int  # 0-100, likelihood image is AI-generated
     flags: List[str]
-    reverse_search_results: Optional[List[str]] = None
+    explanation: str
+    recommended_action: str
+    reverse_search_steps: List[str]
 
 
 # Text analysis

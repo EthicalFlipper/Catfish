@@ -1,20 +1,26 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
-import { copyFileSync, mkdirSync, existsSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync } from 'fs'
 import { build } from 'vite'
 
 export default defineConfig({
   plugins: [
     react(),
     {
-      name: 'build-content-scripts',
+      name: 'build-extension-scripts',
       async writeBundle() {
         // Copy manifest.json to dist
         copyFileSync(
           resolve(__dirname, 'manifest.json'),
           resolve(__dirname, 'dist/manifest.json')
         )
+        
+        // Copy offscreen.html from public to dist
+        const offscreenSrc = resolve(__dirname, 'public/offscreen.html')
+        if (existsSync(offscreenSrc)) {
+          copyFileSync(offscreenSrc, resolve(__dirname, 'dist/offscreen.html'))
+        }
         
         // Build content script separately as IIFE
         await build({
@@ -27,6 +33,26 @@ export default defineConfig({
               name: 'CatfishTinder',
               formats: ['iife'],
               fileName: () => 'tinder.js',
+            },
+            rollupOptions: {
+              output: {
+                extend: true,
+              },
+            },
+          },
+        })
+        
+        // Build offscreen script separately as IIFE
+        await build({
+          configFile: false,
+          build: {
+            emptyOutDir: false,
+            outDir: resolve(__dirname, 'dist'),
+            lib: {
+              entry: resolve(__dirname, 'src/offscreen/offscreen.ts'),
+              name: 'CatfishOffscreen',
+              formats: ['iife'],
+              fileName: () => 'offscreen.js',
             },
             rollupOptions: {
               output: {

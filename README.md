@@ -1,7 +1,12 @@
-<<<<<<< HEAD
 # Catfish (DateGuard)
 
-A Chrome extension + API for detecting catfishing on dating apps. Users record tab audio, upload images, and paste text for AI-powered analysis.
+A Chrome extension + API for detecting catfishing on dating apps. Analyze text, images, and voice notes from Tinder and other dating platforms.
+
+## Features
+
+- **Text Analysis**: Analyze chat threads for romance scams and AI-generated messages
+- **Image Analysis**: Capture profile screenshots and detect catfishing/AI-generated photos
+- **Audio Analysis**: Record tab audio (voice notes) and analyze for scams + AI voices
 
 ## Quick Start
 
@@ -22,11 +27,20 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
+# Copy env file and add your OpenAI key
+cp .env.example .env
+# Edit .env and set OPENAI_API_KEY=sk-your-key
+
 # Run the server
 uvicorn app.main:app --reload --port 8000
 ```
 
 Verify: http://localhost:8000/health → `{"ok": true}`
+
+**Required for Audio Analysis:** Install ffmpeg
+- Windows: `choco install ffmpeg`
+- Mac: `brew install ffmpeg`
+- Linux: `apt install ffmpeg`
 
 ### 2. Build the Extension
 
@@ -38,9 +52,6 @@ npm install
 
 # Build for production
 npm run build
-
-# Or watch mode for development
-npm run dev
 ```
 
 ### 3. Load in Chrome
@@ -51,14 +62,18 @@ npm run dev
 4. Select the `apps/extension/dist` folder
 5. Click the Catfish icon in the toolbar to open the side panel
 
-### 4. Add Icons (Optional)
+## How to Test Audio Recording
 
-Place PNG icons in `apps/extension/public/icons/`:
-- `icon16.png` (16x16)
-- `icon48.png` (48x48)
-- `icon128.png` (128x128)
+1. Reload the extension at `chrome://extensions/`
+2. Open any site playing audio (YouTube works great for testing)
+3. Click the Catfish extension icon to open the side panel
+4. Go to the **Audio** tab
+5. Click **"Record Tab Audio"**
+6. Play the audio in the tab
+7. Click **"Stop Recording"**
+8. Wait for transcription and analysis
 
-Then rebuild: `npm run build`
+Then test on Tinder with actual voice notes!
 
 ## Project Structure
 
@@ -69,11 +84,13 @@ catfish/
 │   │   ├── manifest.json   # Extension config
 │   │   ├── src/
 │   │   │   ├── ui/         # React side panel UI
-│   │   │   └── background/ # Service worker
+│   │   │   ├── background/ # Service worker
+│   │   │   ├── content/    # Tinder content script
+│   │   │   └── offscreen/  # Offscreen audio recorder
 │   │   └── dist/           # Built extension (load this in Chrome)
 │   └── api/                # FastAPI backend
 │       ├── app/
-│       │   ├── main.py     # FastAPI app
+│       │   ├── main.py     # FastAPI app + endpoints
 │       │   ├── schemas.py  # Pydantic models
 │       │   └── settings.py # Config
 │       └── requirements.txt
@@ -81,39 +98,17 @@ catfish/
     └── LLM_CONTEXT.md      # AI context doc
 ```
 
-## Current Status
+## API Endpoints
 
-**MVP Step 1 (Complete):**
-- [x] Extension UI with 3 tabs (Audio, Image, Text)
-- [x] FastAPI with health endpoint
-- [x] CORS configured for extension
-
-**Next Steps:**
-- [ ] Tab audio recording (tabCapture + offscreen API)
-- [ ] Whisper transcription endpoint
-- [ ] GPT analysis endpoints
-- [ ] Image upload + analysis
-- [ ] Text analysis
-
-## Development
-
-**Extension (watch mode):**
-```bash
-cd apps/extension && npm run dev
-```
-
-**API (auto-reload):**
-```bash
-cd apps/api && uvicorn app.main:app --reload
-```
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/analyze/text` | POST | Analyze chat text for scams |
+| `/analyze/image` | POST | Analyze profile images |
+| `/analyze/audio` | POST | Transcribe + analyze voice notes |
 
 ## Tech Stack
 
 - **Extension**: React 18, TypeScript, Vite, Chrome MV3
 - **API**: FastAPI, Pydantic, Python 3.11+
-- **Future**: OpenAI Whisper, GPT-4o-mini
-=======
-# CatFish
-
-Prevents AI Catfishing on Dating Apps
->>>>>>> f20009ac8d60d9436f984b4d15a2553a9c15bff1
+- **AI**: OpenAI Whisper (transcription), GPT-4o-mini (analysis)

@@ -26,6 +26,7 @@ document.body?.appendChild(debugBanner) || document.addEventListener('DOMContent
 // ===== END DEBUG =====
 
 const BUTTON_ID = 'catfish-analyze-btn'
+const CAPTURE_BUTTON_ID = 'catfish-capture-btn'
 const MAX_MESSAGES = 30
 
 interface ThreadImportMessage {
@@ -38,22 +39,20 @@ interface ThreadImportMessage {
   timestamp: number
 }
 
-// Inject styles for the button
+// Inject styles for the buttons
 function injectStyles() {
   if (document.getElementById('catfish-styles')) return
   
   const style = document.createElement('style')
   style.id = 'catfish-styles'
   style.textContent = `
-    #${BUTTON_ID} {
+    .catfish-btn {
       position: fixed;
-      bottom: 80px;
       right: 20px;
       display: flex;
       align-items: center;
       gap: 6px;
       padding: 12px 16px;
-      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
       color: white;
       border: none;
       border-radius: 24px;
@@ -61,21 +60,34 @@ function injectStyles() {
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
       z-index: 999998;
+    }
+    #${BUTTON_ID} {
+      bottom: 80px;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
     }
     #${BUTTON_ID}:hover {
       transform: translateY(-2px);
       box-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
     }
-    #${BUTTON_ID}:active {
+    #${CAPTURE_BUTTON_ID} {
+      bottom: 140px;
+      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4);
+    }
+    #${CAPTURE_BUTTON_ID}:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(249, 115, 22, 0.5);
+    }
+    .catfish-btn:active {
       transform: translateY(0);
     }
-    #${BUTTON_ID}.loading {
+    .catfish-btn.loading {
       opacity: 0.7;
       cursor: wait;
     }
-    #${BUTTON_ID} .icon {
+    .catfish-btn .icon {
       font-size: 16px;
     }
   `
@@ -307,26 +319,148 @@ async function handleAnalyzeClick(button: HTMLButtonElement) {
   }
 }
 
-// Create and inject the button
-function injectButton() {
-  // Don't inject if already exists
-  if (document.getElementById(BUTTON_ID)) {
-    console.log('[Catfish] Button already exists, skipping injection')
-    return
+// Find the profile card/image element on Tinder
+function findProfileElement(): { element: Element; bounds: DOMRect } | null {
+  // Tinder profile card selectors (in order of specificity)
+  const profileSelectors = [
+    // Profile card in swipe view
+    '[class*="profileCard"]',
+    '[class*="Bdrs(8px)"][class*="Bgc(#fff)"]',
+    '[class*="recCard"]',
+    // Profile image container
+    '[class*="StretchedBox"]',
+    '[class*="keen-slider__slide"]',
+    // Chat profile header
+    '[class*="profileCard__card"]',
+    // Generic profile containers
+    '[data-testid="profile"]',
+    'main [class*="Pos(r)"][class*="Ovx(h)"]',
+    // Fallback: main content area with large images
+    'main img[class*="StretchedBox"]',
+    'main [class*="Expand"]',
+  ]
+  
+  for (const selector of profileSelectors) {
+    try {
+      const el = document.querySelector(selector)
+      if (el) {
+        const bounds = el.getBoundingClientRect()
+        // Only use if it's a reasonable size (at least 100x100 and visible)
+        if (bounds.width >= 100 && bounds.height >= 100 && bounds.top < window.innerHeight) {
+          console.log(`[Catfish] Found profile element with selector: ${selector}`, bounds)
+          return { element: el, bounds }
+        }
+      }
+    } catch (e) {
+      // Selector failed, try next
+    }
   }
   
+  // Fallback: find largest image in the main area
+  const images = document.querySelectorAll('main img')
+  let largestImg: HTMLImageElement | null = null
+  let largestArea = 0
+  
+  images.forEach(img => {
+    const bounds = img.getBoundingClientRect()
+    const area = bounds.width * bounds.height
+    if (area > largestArea && bounds.width > 150 && bounds.height > 150) {
+      largestArea = area
+      largestImg = img as HTMLImageElement
+    }
+  })
+  
+  if (largestImg) {
+    const bounds = (largestImg as HTMLImageElement).getBoundingClientRect()
+    console.log('[Catfish] Using largest image as profile', bounds)
+    return { element: largestImg, bounds }
+  }
+  
+  return null
+}
+
+// Handle capture button click
+function handleCaptureClick(button: HTMLButtonElement) {
+  console.log('[Catfish] Capture button clicked!')
+  
+  button.classList.add('loading')
+  button.textContent = 'Finding profile...'
+  
+  // Find the profile element to get crop bounds
+  const profileResult = findProfileElement()
+  
+  let cropBounds = null
+  if (profileResult) {
+    const { bounds } = profileResult
+    // Convert to absolute pixel coordinates and add small padding
+    const padding = 10
+    cropBounds = {
+      x: Math.max(0, bounds.left - padding) * window.devicePixelRatio,
+      y: Math.max(0, bounds.top - padding) * window.devicePixelRatio,
+      width: (bounds.width + padding * 2) * window.devicePixelRatio,
+      height: (bounds.height + padding * 2) * window.devicePixelRatio,
+    }
+    console.log('[Catfish] Crop bounds:', cropBounds)
+  } else {
+    console.log('[Catfish] No profile element found, will capture full page')
+  }
+  
+  button.textContent = 'Capturing...'
+  
+  // Send message to background to capture the tab
+  chrome.runtime.sendMessage({
+    type: 'CAPTURE_VISIBLE_TAB',
+    site: 'tinder',
+    page_url: window.location.href,
+    cropBounds,  // Send crop info
+    devicePixelRatio: window.devicePixelRatio,
+  }, (response) => {
+    button.classList.remove('loading')
+    button.innerHTML = '<span class="icon">📸</span> Capture profile'
+    
+    if (chrome.runtime.lastError) {
+      console.error('[Catfish] Capture error:', chrome.runtime.lastError)
+      alert('Catfish: Failed to capture - ' + chrome.runtime.lastError.message)
+    } else if (response?.error) {
+      console.error('[Catfish] Capture error:', response.error)
+      alert('Catfish: ' + response.error)
+    } else {
+      console.log('[Catfish] Screenshot captured successfully')
+      // Brief success indication
+      button.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+      setTimeout(() => {
+        button.style.background = ''
+      }, 1500)
+      alert('[Catfish] Profile captured! Open the Catfish side panel → Image tab to analyze.')
+    }
+  })
+}
+
+// Create and inject the buttons
+function injectButton() {
   console.log('[Catfish] Attempting button injection...')
   
-  // For debugging: always inject as fixed position button
-  // This ensures visibility regardless of Tinder's DOM structure
-  const button = document.createElement('button')
-  button.id = BUTTON_ID
-  button.innerHTML = '<span class="icon">🐱</span> Analyze this thread'
-  button.addEventListener('click', () => handleAnalyzeClick(button))
+  // Inject analyze thread button
+  if (!document.getElementById(BUTTON_ID)) {
+    const button = document.createElement('button')
+    button.id = BUTTON_ID
+    button.className = 'catfish-btn'
+    button.innerHTML = '<span class="icon">🐱</span> Analyze thread'
+    button.addEventListener('click', () => handleAnalyzeClick(button))
+    document.body.appendChild(button)
+    console.log('[Catfish] Analyze button injected!')
+  }
   
-  // Append to body with fixed positioning (styles handle the rest)
-  document.body.appendChild(button)
-  console.log('[Catfish] Button injected successfully!')
+  // Inject capture profile button
+  if (!document.getElementById(CAPTURE_BUTTON_ID)) {
+    const captureBtn = document.createElement('button')
+    captureBtn.id = CAPTURE_BUTTON_ID
+    captureBtn.className = 'catfish-btn'
+    captureBtn.innerHTML = '<span class="icon">📸</span> Capture profile'
+    captureBtn.addEventListener('click', () => handleCaptureClick(captureBtn))
+    document.body.appendChild(captureBtn)
+    console.log('[Catfish] Capture button injected!')
+  }
 }
 
 // Remove button if it exists
@@ -347,11 +481,12 @@ function init() {
   setTimeout(injectButton, 1000)
   setTimeout(injectButton, 3000)
   
-  // Watch for SPA navigation/rerenders - re-inject if button disappears
+  // Watch for SPA navigation/rerenders - re-inject if buttons disappear
   const observer = new MutationObserver((_mutations) => {
-    const buttonExists = document.getElementById(BUTTON_ID)
-    if (!buttonExists) {
-      console.log('[Catfish] Button missing, re-injecting...')
+    const analyzeExists = document.getElementById(BUTTON_ID)
+    const captureExists = document.getElementById(CAPTURE_BUTTON_ID)
+    if (!analyzeExists || !captureExists) {
+      console.log('[Catfish] Button(s) missing, re-injecting...')
       injectButton()
     }
   })
@@ -369,8 +504,8 @@ function init() {
       lastUrl = location.href
       setTimeout(injectButton, 500)
     }
-    // Periodic check to ensure button exists
-    if (!document.getElementById(BUTTON_ID)) {
+    // Periodic check to ensure buttons exist
+    if (!document.getElementById(BUTTON_ID) || !document.getElementById(CAPTURE_BUTTON_ID)) {
       injectButton()
     }
   }, 2000)
