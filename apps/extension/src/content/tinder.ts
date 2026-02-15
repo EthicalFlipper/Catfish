@@ -24,6 +24,11 @@ function injectStyles() {
   const style = document.createElement('style')
   style.id = 'catfish-styles'
   style.textContent = `
+    /* =============================================
+       CATFISH INJECTED BUTTONS
+       Consistent with main UI button system
+       Using indigo primary color for visibility
+       ============================================= */
     .catfish-btn {
       position: fixed;
       right: 20px;
@@ -31,49 +36,79 @@ function injectStyles() {
       align-items: center;
       gap: 8px;
       padding: 12px 18px;
-      color: white;
+      color: #ffffff;
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       font-size: 12px;
       font-weight: 600;
       font-family: 'Inter', -apple-system, sans-serif;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
       z-index: 999998;
     }
+    
+    /* Primary Action: Analyze Thread */
     #${BUTTON_ID} {
       bottom: 80px;
-      background: #f5f5f0;
-      box-shadow: 0 4px 16px rgba(245, 245, 240, 0.4);
+      background: #6366f1;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(99, 102, 241, 0.4);
     }
     #${BUTTON_ID}:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 24px rgba(245, 245, 240, 0.5);
-      background: #e0e0d8;
+      background: #4f46e5;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 6px 24px rgba(99, 102, 241, 0.5);
     }
+    #${BUTTON_ID}:active {
+      transform: translateY(0);
+      background: #4338ca;
+    }
+    
+    /* Secondary Action: Capture Profile */
     #${CAPTURE_BUTTON_ID} {
       bottom: 140px;
-      background: #12121a;
-      border: 1px solid #f5f5f0;
-      box-shadow: 0 4px 16px rgba(245, 245, 240, 0.2);
+      background: #27272a;
+      border: 1px solid #3f3f46;
+      color: #e8e8ec;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
     }
     #${CAPTURE_BUTTON_ID}:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 24px rgba(245, 245, 240, 0.3);
-      background: #1a1a24;
+      background: #3f3f46;
+      border-color: #52525b;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), 0 6px 20px rgba(0, 0, 0, 0.3);
     }
-    .catfish-btn:active {
+    #${CAPTURE_BUTTON_ID}:active {
       transform: translateY(0);
+      background: #52525b;
     }
+    
+    /* Loading state */
     .catfish-btn.loading {
       opacity: 0.7;
       cursor: wait;
+      pointer-events: none;
     }
+    
+    /* Success state */
     .catfish-btn.success {
       background: #059669 !important;
       border-color: #059669 !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(5, 150, 105, 0.4) !important;
+    }
+    
+    /* Focus state for accessibility */
+    .catfish-btn:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px #0a0a0c, 0 0 0 4px rgba(99, 102, 241, 0.5);
+    }
+    
+    /* Disabled state */
+    .catfish-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
     }
   `
   document.head.appendChild(style)
