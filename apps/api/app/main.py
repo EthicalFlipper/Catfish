@@ -179,47 +179,166 @@ async def analyze_text(request: TextAnalysisRequest):
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
-# System prompt for image analysis
-IMAGE_ANALYSIS_PROMPT = """You are a dating safety analyst specializing in detecting fake, stolen, or AI-generated profile photos used in romance scams and catfishing.
+# =============================================================================
+# COMPREHENSIVE AI IMAGE DETECTION SYSTEM
+# =============================================================================
+# This system uses a weighted evidence model to detect AI-generated images
+# with high sensitivity while maintaining low false-positive rates.
+# =============================================================================
 
-Analyze the provided image and return a JSON object with EXACTLY these keys:
+IMAGE_ANALYSIS_PROMPT = """You are a FORENSIC IMAGE ANALYST specializing in detecting AI-generated images (Midjourney, Stable Diffusion, DALL-E, etc.) and stolen/catfish photos.
+
+YOUR TASK: Analyze this image using a WEIGHTED EVIDENCE MODEL. You must be STRICT and SENSITIVE to AI artifacts while avoiding false positives on real photos.
+
+## CRITICAL INSTRUCTION
+You MUST examine the image forensically. Do NOT default to low scores. If you detect even subtle AI artifacts, you MUST report them and score accordingly. Under-detection is a serious failure.
+
+## WEIGHTED ARTIFACT CATEGORIES
+
+### A. TEXTURE & SURFACE ARTIFACTS [Weight: HIGH - 25 points max]
+Examine carefully for:
+- HYPER-SMOOTH SKIN: AI creates unnaturally smooth, poreless skin (even in "realistic" images). Real skin has pores, fine lines, subtle imperfections.
+- PLASTIC/WAXY TEXTURE: Skin looks like it's made of plastic or wax, lacking subsurface scattering variation
+- INCONSISTENT SKIN DETAIL: Some areas ultra-smooth, others suddenly detailed
+- UNNATURAL FABRIC: Clothing patterns that blend or morph incorrectly, fabric texture too uniform
+- HAIR TEXTURE ARTIFACTS: Individual strands that merge, hair that looks painted, unnatural shine patterns
+
+Score this category 0-25:
+- 0-5: Natural textures consistent with real photography
+- 6-12: Some smoothing but could be post-processing
+- 13-18: Noticeable artificial smoothness
+- 19-25: Clearly synthetic texture (waxy, plastic, AI-typical)
+
+### B. STRUCTURAL DISTORTIONS [Weight: CRITICAL - 30 points max]
+These are the STRONGEST indicators. Look for:
+- FINGER/HAND ANOMALIES: Wrong number of fingers, merged fingers, impossible joint angles, hands that dissolve into blur
+- EYE IRREGULARITIES: Mismatched pupil shapes, unrealistic iris detail (too perfect or too random), asymmetric reflections, wrong catchlight positions
+- FACIAL ASYMMETRY ARTIFACTS: Not natural asymmetry, but AI-style warping - one side of face slightly different style
+- EARRING/JEWELRY MISMATCH: Earrings that don't match, jewelry that morphs into skin, accessories that defy physics
+- TEETH ANOMALIES: Wrong number of teeth, teeth that blend together, gums that look painted
+- BACKGROUND GEOMETRY WARPING: Straight lines that bend near the subject, architecture that doesn't make sense
+- CLOTHING STRUCTURE: Collars that don't connect, buttons misaligned, clothing that merges with body
+
+Score this category 0-30:
+- 0-5: No structural anomalies detected
+- 6-12: Minor issues (could be motion blur or low resolution)
+- 13-20: Noticeable structural problems (likely AI)
+- 21-30: Clear structural impossibilities (definitely AI)
+
+### C. LIGHTING & PHYSICS [Weight: MEDIUM - 20 points max]
+- INCONSISTENT LIGHT DIRECTION: Multiple conflicting light sources that don't match a real environment
+- IMPOSSIBLE SHADOWS: Shadows going wrong directions, missing shadows, shadows with wrong softness
+- HALO/GLOW ARTIFACTS: Unnatural bright edges around subjects (common in diffusion models)
+- DEPTH-OF-FIELD ANOMALIES: Blur that doesn't follow proper optical physics, areas in focus that shouldn't be
+- REFLECTION INCONSISTENCIES: Reflections in eyes/glasses that show impossible scenes
+
+Score this category 0-20:
+- 0-5: Consistent natural lighting
+- 6-10: Minor inconsistencies (could be mixed lighting)
+- 11-15: Noticeable lighting problems
+- 16-20: Physically impossible lighting
+
+### D. STYLE & GENERATION SIGNATURES [Weight: MEDIUM - 15 points max]
+- MIDJOURNEY SIGNATURES: Hyper-detailed skin gradients, painterly quality, over-saturated colors, dramatic lighting
+- STABLE DIFFUSION PATTERNS: Specific blur patterns, characteristic noise in dark areas
+- DALL-E CHARACTERISTICS: Certain color palettes, specific rendering of eyes
+- OVER-DETAILED IRISES: Irises with too much detail, unrealistic patterns
+- "TOO PERFECT" AESTHETIC: Everything looks too aesthetically composed, like a render
+
+Score this category 0-15:
+- 0-3: No generation signatures detected
+- 4-8: Subtle stylistic similarities
+- 9-12: Notable AI-style characteristics
+- 13-15: Strong generation model signature
+
+### E. METADATA & TECHNICAL SIGNALS [Weight: LOW - 10 points max]
+(Note: You cannot see metadata, but you CAN see compression artifacts)
+- UNNATURAL COMPRESSION: AI images often have uniform noise patterns unlike camera sensor noise
+- RESOLUTION ANOMALIES: Upscaled AI images have characteristic smoothness
+- EDGE QUALITY: AI images often have subtle edge artifacts
+
+Score this category 0-10:
+- 0-3: Natural image characteristics
+- 4-6: Some unusual technical aspects
+- 7-10: Technical artifacts suggesting AI generation
+
+## CALIBRATION RULES
+
+### Non-Linear Escalation
+If you detect signals in 3+ categories with medium or higher severity:
+→ ADD 15 BONUS POINTS to ai_generated_score
+→ Set "escalation_applied": true
+
+If you detect a DEFINITIVE structural impossibility (wrong finger count, etc.):
+→ MINIMUM ai_generated_score of 70
+
+### False Positive Protection
+REDUCE score by 5-10 points if you detect:
+- Natural sensor noise patterns (grain that varies realistically)
+- Authentic lens distortion (barrel/pincushion distortion consistent with wide-angle)
+- Real JPEG compression artifacts (blocky, not smooth)
+- Professional lighting that's consistent (studio setups are real)
+- Instagram/Lightroom filters (these are edits, not AI generation)
+
+DO NOT penalize:
+- Professional DSLR portraits
+- Studio photography with perfect lighting
+- Retouched/smoothed skin (Facetune, Lightroom) - reduce this penalty
+- Intentionally artistic photography
+
+## CONFIDENCE BANDS
+
+Based on final ai_generated_score:
+- 0-20%: "likely_real" - No significant AI indicators
+- 21-40%: "low_suspicion" - Minor concerns, probably real
+- 41-60%: "uncertain" - Mixed signals, cannot determine
+- 61-80%: "likely_ai" - Strong AI indicators present
+- 81-100%: "strong_ai_indicators" - Definitive AI artifacts
+
+## OUTPUT FORMAT
+
+Return a JSON object with EXACTLY these keys:
 {
-  "catfish_score": <number 0-100, likelihood this is a stolen/fake photo used for catfishing>,
-  "ai_generated_score": <number 0-100, likelihood this image was AI-generated>,
-  "flags": <array of specific warning signs found>,
-  "explanation": <string explaining your analysis>,
-  "recommended_action": <string with actionable advice>,
-  "reverse_search_steps": <array of strings with step-by-step instructions for manual reverse image search>
+  "catfish_score": <number 0-100>,
+  "ai_generated_score": <number 0-100, calculated from weighted categories>,
+  "confidence_band": <"likely_real" | "low_suspicion" | "uncertain" | "likely_ai" | "strong_ai_indicators">,
+  "top_signals": [
+    {
+      "category": <"texture" | "structure" | "lighting" | "style" | "technical">,
+      "signal": <string identifier like "hyper_smooth_skin" or "finger_anomaly">,
+      "description": <detailed description of what you found>,
+      "weight": <0.0-1.0 contribution to score>,
+      "severity": <"low" | "medium" | "high">
+    }
+  ],
+  "flags": <array of warning flag strings>,
+  "explanation": <overall analysis summary>,
+  "ai_detection_rationale": <detailed explanation of why you assigned this AI score, including category breakdowns>,
+  "recommended_action": <actionable advice>,
+  "reverse_search_steps": [
+    "Save or screenshot this image",
+    "Go to images.google.com and click the camera icon",
+    "Upload the image to search for matches",
+    "Check if this image appears elsewhere with different identities",
+    "Try TinEye.com for additional reverse image search"
+  ],
+  "signal_count": <number of AI signals detected>,
+  "escalation_applied": <true if non-linear escalation was triggered, false otherwise>,
+  "category_scores": {
+    "texture": <0-25>,
+    "structure": <0-30>,
+    "lighting": <0-20>,
+    "style": <0-15>,
+    "technical": <0-10>
+  }
 }
 
-CATFISH/STOLEN PHOTO indicators (for catfish_score):
-- Professional model-quality photos (too perfect lighting, poses)
-- Stock photo appearance
-- Watermarks or editing artifacts suggesting stolen image
-- Inconsistent backgrounds or poorly edited composites
-- Military uniform photos (common in romance scams)
-- Luxury lifestyle props that seem staged
-- Celebrity or influencer appearance
-- Photos that look like they're from a different era/quality
-- Cropped or low-resolution images hiding details
-
-AI-GENERATED indicators (for ai_generated_score):
-- Unnatural skin texture (too smooth, waxy)
-- Asymmetrical or distorted facial features
-- Weird earrings, glasses, or accessories
-- Background inconsistencies or artifacts
-- Unusual hair patterns or textures
-- Hands or fingers that look wrong
-- Text or numbers that are garbled
-- Eyes that don't match or have strange reflections
-- Clothing patterns that don't make sense
-
-Always include these reverse_search_steps:
-1. Save/screenshot the image
-2. Go to images.google.com and click the camera icon
-3. Upload the image or paste URL
-4. Check if the same photo appears on other sites with different names
-5. Try TinEye.com for additional reverse image search
+IMPORTANT REMINDERS:
+1. Be STRICT - AI images are getting better, you must catch subtle artifacts
+2. A clearly AI-generated image should NEVER score below 60%
+3. Do NOT default to low scores out of caution - evidence-based scoring only
+4. Report ALL artifacts you find, even subtle ones
+5. Your top_signals should list the 3-5 most significant findings
 
 Return ONLY the JSON object, no markdown formatting."""
 
@@ -229,8 +348,11 @@ def get_image_mock_response() -> dict:
     return {
         "catfish_score": 0,
         "ai_generated_score": 0,
+        "confidence_band": "uncertain",
+        "top_signals": [],
         "flags": ["vision_unavailable"],
         "explanation": "Image analysis unavailable: OpenAI API key not configured or vision model not accessible. Please add OPENAI_API_KEY to your .env file.",
+        "ai_detection_rationale": "Cannot analyze - API key missing.",
         "recommended_action": "Configure the API key for real analysis. In the meantime, manually reverse image search this photo using Google Images or TinEye.",
         "reverse_search_steps": [
             "Save or screenshot the image",
@@ -238,50 +360,157 @@ def get_image_mock_response() -> dict:
             "Upload the image or drag it into the search box",
             "Review results to see if this photo appears elsewhere with different names",
             "Try TinEye.com as an additional reverse image search"
-        ]
+        ],
+        "signal_count": 0,
+        "escalation_applied": False
     }
 
 
+def get_confidence_band(score: int) -> str:
+    """Convert AI score to confidence band"""
+    if score <= 20:
+        return "likely_real"
+    elif score <= 40:
+        return "low_suspicion"
+    elif score <= 60:
+        return "uncertain"
+    elif score <= 80:
+        return "likely_ai"
+    else:
+        return "strong_ai_indicators"
+
+
+def calibrate_ai_score(result: dict) -> dict:
+    """
+    Apply calibration logic to ensure consistent scoring.
+    This adds non-linear escalation and validates confidence bands.
+    """
+    ai_score = result.get("ai_generated_score", 0)
+    top_signals = result.get("top_signals", [])
+    category_scores = result.get("category_scores", {})
+    
+    # Count signals by severity
+    high_severity_count = sum(1 for s in top_signals if s.get("severity") == "high")
+    medium_severity_count = sum(1 for s in top_signals if s.get("severity") == "medium")
+    
+    # Count categories with significant scores
+    categories_with_signals = sum(1 for cat, score in category_scores.items() 
+                                   if score >= 5)  # At least 5 points in category
+    
+    escalation_applied = False
+    
+    # Non-linear escalation rule 1: Multiple categories affected
+    if categories_with_signals >= 3:
+        original_score = ai_score
+        ai_score = min(100, ai_score + 15)
+        if ai_score > original_score:
+            escalation_applied = True
+    
+    # Non-linear escalation rule 2: Multiple high severity signals
+    if high_severity_count >= 2:
+        original_score = ai_score
+        ai_score = max(ai_score, 70)  # Floor at 70 for multiple high severity
+        if ai_score > original_score:
+            escalation_applied = True
+    
+    # Non-linear escalation rule 3: Structure category is very high (definitive)
+    if category_scores.get("structure", 0) >= 20:
+        original_score = ai_score
+        ai_score = max(ai_score, 75)  # Structural problems are very telling
+        if ai_score > original_score:
+            escalation_applied = True
+    
+    # Update the result
+    result["ai_generated_score"] = min(100, max(0, ai_score))
+    result["escalation_applied"] = escalation_applied or result.get("escalation_applied", False)
+    result["confidence_band"] = get_confidence_band(result["ai_generated_score"])
+    result["signal_count"] = len(top_signals)
+    
+    return result
+
+
 async def call_openai_for_image_analysis(image_data: bytes) -> dict:
-    """Call OpenAI Vision API for image analysis"""
+    """
+    Call OpenAI Vision API for comprehensive AI image detection.
+    Uses gpt-4o for better visual analysis capabilities.
+    """
     client = OpenAI(api_key=settings.openai_api_key)
     
     # Convert image to base64
     base64_image = base64.b64encode(image_data).decode('utf-8')
     
+    # Determine image type from magic bytes
+    image_type = "png"
+    if image_data[:2] == b'\xff\xd8':
+        image_type = "jpeg"
+    elif image_data[:4] == b'\x89PNG':
+        image_type = "png"
+    elif image_data[:4] == b'RIFF':
+        image_type = "webp"
+    
     response = client.chat.completions.create(
-        model="gpt-4o-mini",  # Vision-capable model
+        model="gpt-4o",  # Use full gpt-4o for better forensic analysis
         messages=[
             {"role": "system", "content": IMAGE_ANALYSIS_PROMPT},
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Analyze this dating profile image for catfishing and AI-generation indicators:"},
+                    {
+                        "type": "text", 
+                        "text": """Analyze this dating profile image for AI-generation artifacts.
+
+CRITICAL: Examine closely for:
+1. Skin texture - Is it unnaturally smooth? Waxy? Plastic-looking?
+2. Hands/fingers - Are there any anomalies?
+3. Eyes - Mismatched pupils? Unrealistic iris detail?
+4. Background - Any warping or impossible geometry?
+5. Lighting - Multiple conflicting light sources?
+6. Hair - Does it look painted or merge unnaturally?
+7. Accessories - Earrings that don't match? Jewelry defying physics?
+
+Be STRICT in your assessment. Modern AI images are sophisticated - look for subtle artifacts.
+A clearly AI-generated image should score 60%+ on ai_generated_score."""
+                    },
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/png;base64,{base64_image}",
+                            "url": f"data:image/{image_type};base64,{base64_image}",
                             "detail": "high"
                         }
                     }
                 ]
             }
         ],
-        temperature=0.3,
-        max_tokens=1000,
+        temperature=0.2,  # Lower temperature for more consistent forensic analysis
+        max_tokens=2000,  # More tokens for detailed analysis
     )
     
     content = response.choices[0].message.content or ""
     
     try:
-        return parse_llm_response(content)
+        result = parse_llm_response(content)
+        return result
     except json.JSONDecodeError:
-        # Retry with repair prompt
+        # Retry with repair prompt, including the image again
         repair_response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": IMAGE_ANALYSIS_PROMPT},
-                {"role": "user", "content": "Return only valid JSON, no markdown. Previous response was invalid."},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Analyze this image for AI-generation:"},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{image_type};base64,{base64_image}",
+                                "detail": "high"
+                            }
+                        }
+                    ]
+                },
+                {"role": "assistant", "content": content},
+                {"role": "user", "content": "Your response was not valid JSON. Return ONLY the JSON object, no markdown code blocks."}
             ],
             temperature=0.1,
         )
@@ -291,7 +520,15 @@ async def call_openai_for_image_analysis(image_data: bytes) -> dict:
 
 @app.post("/analyze/image", response_model=ImageAnalysisResponse)
 async def analyze_image(image: UploadFile = File(...)):
-    """Analyze profile image for catfishing/AI-generation indicators"""
+    """
+    Analyze profile image for catfishing and AI-generation indicators.
+    
+    Uses a comprehensive weighted evidence model with:
+    - 5 artifact categories (texture, structure, lighting, style, technical)
+    - Non-linear score escalation for multiple signals
+    - Confidence bands for clear interpretation
+    - Detailed top signals reporting
+    """
     
     # Read image data
     image_data = await image.read()
@@ -309,7 +546,7 @@ async def analyze_image(image: UploadFile = File(...)):
     try:
         result = await call_openai_for_image_analysis(image_data)
         
-        # Validate required fields
+        # Validate required fields (core fields)
         required_fields = ["catfish_score", "ai_generated_score", "flags", "explanation", "recommended_action", "reverse_search_steps"]
         for field in required_fields:
             if field not in result:
@@ -318,6 +555,37 @@ async def analyze_image(image: UploadFile = File(...)):
         # Ensure scores are in range
         result["catfish_score"] = max(0, min(100, int(result["catfish_score"])))
         result["ai_generated_score"] = max(0, min(100, int(result["ai_generated_score"])))
+        
+        # Apply calibration logic (non-linear escalation, confidence bands)
+        result = calibrate_ai_score(result)
+        
+        # Ensure new fields have defaults if missing
+        if "top_signals" not in result:
+            result["top_signals"] = []
+        if "ai_detection_rationale" not in result:
+            result["ai_detection_rationale"] = result.get("explanation", "")
+        if "confidence_band" not in result:
+            result["confidence_band"] = get_confidence_band(result["ai_generated_score"])
+        if "signal_count" not in result:
+            result["signal_count"] = len(result.get("top_signals", []))
+        if "escalation_applied" not in result:
+            result["escalation_applied"] = False
+            
+        # Ensure top_signals have proper structure
+        validated_signals = []
+        for signal in result.get("top_signals", []):
+            if isinstance(signal, dict):
+                validated_signals.append({
+                    "category": signal.get("category", "unknown"),
+                    "signal": signal.get("signal", "unknown"),
+                    "description": signal.get("description", ""),
+                    "weight": float(signal.get("weight", 0.0)),
+                    "severity": signal.get("severity", "low")
+                })
+        result["top_signals"] = validated_signals
+        
+        # Remove category_scores from response (internal use only)
+        result.pop("category_scores", None)
         
         return result
     except json.JSONDecodeError as e:

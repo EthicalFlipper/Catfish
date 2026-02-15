@@ -9,13 +9,26 @@ interface ImageCapture {
   captured_at: number
 }
 
+interface ArtifactSignal {
+  category: string
+  signal: string
+  description: string
+  weight: number
+  severity: 'low' | 'medium' | 'high'
+}
+
 interface ImageAnalysisResult {
   catfish_score: number
   ai_generated_score: number
+  confidence_band: 'likely_real' | 'low_suspicion' | 'uncertain' | 'likely_ai' | 'strong_ai_indicators'
+  top_signals: ArtifactSignal[]
   flags: string[]
   explanation: string
+  ai_detection_rationale: string
   recommended_action: string
   reverse_search_steps: string[]
+  signal_count: number
+  escalation_applied: boolean
 }
 
 function ImageTab() {
@@ -127,6 +140,37 @@ function ImageTab() {
     return '#ef4444'
   }
 
+  const getConfidenceBandLabel = (band: string) => {
+    switch (band) {
+      case 'likely_real': return 'Likely Real'
+      case 'low_suspicion': return 'Low Suspicion'
+      case 'uncertain': return 'Uncertain'
+      case 'likely_ai': return 'Likely AI'
+      case 'strong_ai_indicators': return 'Strong AI Indicators'
+      default: return band
+    }
+  }
+
+  const getConfidenceBandColor = (band: string) => {
+    switch (band) {
+      case 'likely_real': return '#10b981'
+      case 'low_suspicion': return '#22c55e'
+      case 'uncertain': return '#f59e0b'
+      case 'likely_ai': return '#f97316'
+      case 'strong_ai_indicators': return '#ef4444'
+      default: return '#64748b'
+    }
+  }
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'high': return '#ef4444'
+      case 'medium': return '#f59e0b'
+      case 'low': return '#22c55e'
+      default: return '#64748b'
+    }
+  }
+
   return (
     <div className="tab-panel">
       <h2>Image Analysis</h2>
@@ -187,6 +231,19 @@ function ImageTab() {
       {/* Results */}
       {result && (
         <div className="result-container">
+          {/* Confidence Band Header */}
+          <div 
+            className="result-header" 
+            style={{ borderColor: getConfidenceBandColor(result.confidence_band) }}
+          >
+            <div 
+              className="category-badge" 
+              style={{ background: getConfidenceBandColor(result.confidence_band) }}
+            >
+              {getConfidenceBandLabel(result.confidence_band)}
+            </div>
+          </div>
+
           {/* Dual Scores */}
           <div className="scores-row">
             <div className="score-card">
@@ -202,8 +259,71 @@ function ImageTab() {
                 {result.ai_generated_score}
                 <span style={{ fontSize: '16px', opacity: 0.7 }}>%</span>
               </div>
+              {result.escalation_applied && (
+                <div style={{ 
+                  fontSize: '9px', 
+                  color: '#f59e0b', 
+                  marginTop: '4px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>
+                  ↑ Escalated
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Top AI Signals */}
+          {result.top_signals && result.top_signals.length > 0 && (
+            <div className="result-section">
+              <h4>◈ Top AI Signals ({result.signal_count} detected)</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {result.top_signals.slice(0, 5).map((signal, i) => (
+                  <div 
+                    key={i} 
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'flex-start', 
+                      gap: '10px',
+                      padding: '10px 12px',
+                      background: 'var(--noir-elevated)',
+                      borderRadius: '4px',
+                      borderLeft: `3px solid ${getSeverityColor(signal.severity)}`
+                    }}
+                  >
+                    <div style={{ 
+                      fontSize: '10px', 
+                      fontWeight: 700,
+                      color: getSeverityColor(signal.severity),
+                      textTransform: 'uppercase',
+                      minWidth: '50px'
+                    }}>
+                      {signal.severity}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ 
+                        fontSize: '11px', 
+                        fontWeight: 600,
+                        color: 'var(--text-primary)',
+                        marginBottom: '2px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        {signal.signal.replace(/_/g, ' ')}
+                      </div>
+                      <div style={{ 
+                        fontSize: '12px', 
+                        color: 'var(--text-secondary)',
+                        lineHeight: 1.4
+                      }}>
+                        {signal.description}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Flags */}
           {result.flags.length > 0 && (
@@ -217,9 +337,17 @@ function ImageTab() {
             </div>
           )}
 
+          {/* AI Detection Rationale */}
+          {result.ai_detection_rationale && (
+            <div className="result-section">
+              <h4>◈ AI Detection Analysis</h4>
+              <p>{result.ai_detection_rationale}</p>
+            </div>
+          )}
+
           {/* Explanation */}
           <div className="result-section">
-            <h4>◈ Analysis Summary</h4>
+            <h4>◈ Overall Summary</h4>
             <p>{result.explanation}</p>
           </div>
 
