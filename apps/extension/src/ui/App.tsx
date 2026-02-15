@@ -13,7 +13,7 @@ function App() {
         <div className="header-content">
           <div className="header-indicator"></div>
           <div className="header-text">
-            <h1>Catfish</h1>
+            <h1>CATFISH</h1>
             <p className="subtitle">Threat Analysis System</p>
           </div>
           <div className="header-status">
