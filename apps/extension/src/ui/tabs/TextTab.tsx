@@ -179,17 +179,17 @@ function TextTab() {
       {/* Import status banner */}
       {importStatus && (
         <div className="import-banner">
-          <span className="import-icon">🔥</span>
+          <span className="import-icon">↓</span>
           <span className="import-text">
-            Imported from {importStatus.site}
-            {importStatus.matchName && ` • ${importStatus.matchName}`}
+            Imported: {importStatus.site}
+            {importStatus.matchName && ` → ${importStatus.matchName}`}
           </span>
           <button className="import-clear" onClick={clearImport} title="Clear">×</button>
         </div>
       )}
 
       <textarea
-        placeholder={importStatus ? "Conversation imported from Tinder..." : "Paste your conversation here, or click 'Analyze this thread' on Tinder..."}
+        placeholder={importStatus ? "// Conversation data loaded..." : "// Paste conversation or use 'Analyze thread' on Tinder..."}
         value={text}
         onChange={(e) => {
           setText(e.target.value)
@@ -200,7 +200,7 @@ function TextTab() {
       />
 
       <textarea
-        placeholder="Any concerns or context? (optional)"
+        placeholder="// Additional context (optional)"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         rows={2}
@@ -213,7 +213,7 @@ function TextTab() {
         disabled={!text.trim() || loading}
         onClick={handleAnalyze}
       >
-        {loading ? 'Analyzing...' : 'Analyze Text'}
+        {loading ? '◌ Processing...' : '▶ Analyze Text'}
       </button>
 
       {error && (
@@ -234,25 +234,25 @@ function TextTab() {
           {/* Dual Scores */}
           <div className="scores-row">
             <div className="score-card">
-              <div className="score-icon">🤖</div>
-              <div className="score-value" style={{ color: getScoreColor(result.ai_score) }}>
-                {result.ai_score}%
-              </div>
               <div className="score-label">AI-Written</div>
+              <div className="score-value" style={{ color: getScoreColor(result.ai_score) }}>
+                {result.ai_score}
+                <span style={{ fontSize: '16px', opacity: 0.7 }}>%</span>
+              </div>
             </div>
             <div className="score-card">
-              <div className="score-icon">⚠️</div>
-              <div className="score-value" style={{ color: getScoreColor(result.risk_score) }}>
-                {result.risk_score}%
-              </div>
               <div className="score-label">Scam Risk</div>
+              <div className="score-value" style={{ color: getScoreColor(result.risk_score) }}>
+                {result.risk_score}
+                <span style={{ fontSize: '16px', opacity: 0.7 }}>%</span>
+              </div>
             </div>
           </div>
 
           {/* Flags */}
           {result.flags.length > 0 && (
             <div className="result-section">
-              <h4>Red Flags</h4>
+              <h4>⚠ Detected Flags</h4>
               <div className="flags-container">
                 {result.flags.map((flag, i) => (
                   <span key={i} className="flag-chip">{flag}</span>
@@ -263,23 +263,23 @@ function TextTab() {
 
           {/* Explanation */}
           <div className="result-section">
-            <h4>Analysis</h4>
+            <h4>◈ Analysis Summary</h4>
             <p>{result.explanation}</p>
           </div>
 
           {/* Recommended Action */}
           <div className="result-section">
-            <h4>Recommended Action</h4>
+            <h4>→ Recommended Action</h4>
             <p>{result.recommended_action}</p>
           </div>
 
           {/* Suggested Reply */}
           <div className="result-section">
-            <h4>Suggested Reply</h4>
+            <h4>◈ Suggested Response</h4>
             <div className="suggested-reply">
               <p>{result.suggested_reply}</p>
               <button className="btn btn-copy" onClick={handleCopy}>
-                {copied ? 'Copied!' : 'Copy'}
+                {copied ? '✓ Copied' : '⎘ Copy'}
               </button>
             </div>
           </div>

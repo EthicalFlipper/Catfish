@@ -11,8 +11,17 @@ function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>Catfish</h1>
-        <p className="subtitle">DateGuard Analysis</p>
+        <div className="header-content">
+          <div className="header-indicator"></div>
+          <div className="header-text">
+            <h1>Catfish</h1>
+            <p className="subtitle">Threat Analysis System</p>
+          </div>
+          <div className="header-status">
+            <span className="status-dot"></span>
+            <span className="status-text">Online</span>
+          </div>
+        </div>
       </header>
 
       <nav className="tabs">
@@ -20,18 +29,21 @@ function App() {
           className={`tab ${activeTab === 'audio' ? 'active' : ''}`}
           onClick={() => setActiveTab('audio')}
         >
+          <span className="tab-icon">◉</span>
           Audio
         </button>
         <button
           className={`tab ${activeTab === 'image' ? 'active' : ''}`}
           onClick={() => setActiveTab('image')}
         >
+          <span className="tab-icon">◫</span>
           Image
         </button>
         <button
           className={`tab ${activeTab === 'text' ? 'active' : ''}`}
           onClick={() => setActiveTab('text')}
         >
+          <span className="tab-icon">≡</span>
           Text
         </button>
       </nav>

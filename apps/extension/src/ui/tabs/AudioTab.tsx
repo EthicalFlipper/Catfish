@@ -187,18 +187,25 @@ function AudioTab() {
       <div className="audio-controls">
         {status === 'idle' && (
           <button className="btn btn-record" onClick={startRecording}>
-            <span className="record-icon">🔴</span> Record Tab Audio
+            <span className="record-icon"></span> Record Tab Audio
           </button>
         )}
 
         {status === 'recording' && (
           <>
+            <div className="waveform">
+              <div className="waveform-bar"></div>
+              <div className="waveform-bar"></div>
+              <div className="waveform-bar"></div>
+              <div className="waveform-bar"></div>
+              <div className="waveform-bar"></div>
+            </div>
             <div className="recording-indicator">
               <span className="pulse-dot"></span>
-              Recording... {formatTime(recordingTime)}
+              <span className="terminal-text">{formatTime(recordingTime)}</span>
             </div>
             <button className="btn btn-stop" onClick={stopRecording}>
-              <span>⏹</span> Stop Recording
+              ■ Stop Recording
             </button>
           </>
         )}
@@ -206,13 +213,13 @@ function AudioTab() {
         {status === 'processing' && (
           <div className="processing-indicator">
             <span className="spinner"></span>
-            Analyzing audio...
+            <span>Analyzing signal...</span>
           </div>
         )}
 
         {(status === 'done' || status === 'error') && (
           <button className="btn btn-secondary" onClick={reset}>
-            Record Again
+            ↺ New Recording
           </button>
         )}
       </div>
@@ -237,41 +244,41 @@ function AudioTab() {
           {/* Scores */}
           <div className="scores-row">
             <div className="score-card">
-              <div className="score-icon">⚠️</div>
-              <div className="score-value" style={{ color: getScoreColor(result.risk_score) }}>
-                {result.risk_score}%
-              </div>
               <div className="score-label">Scam Risk</div>
+              <div className="score-value" style={{ color: getScoreColor(result.risk_score) }}>
+                {result.risk_score}
+                <span style={{ fontSize: '16px', opacity: 0.7 }}>%</span>
+              </div>
             </div>
             <div className="score-card">
-              <div className="score-icon">🤖</div>
-              <div className="score-value" style={{ color: getScoreColor(result.ai_voice_score) }}>
-                {result.ai_voice_score}%
-              </div>
               <div className="score-label">AI Voice</div>
+              <div className="score-value" style={{ color: getScoreColor(result.ai_voice_score) }}>
+                {result.ai_voice_score}
+                <span style={{ fontSize: '16px', opacity: 0.7 }}>%</span>
+              </div>
             </div>
           </div>
-
-          {/* AI Voice Rationale */}
-          {result.ai_voice_rationale && (
-            <div className="result-section">
-              <h4>AI Voice Analysis</h4>
-              <p>{result.ai_voice_rationale}</p>
-            </div>
-          )}
 
           {/* Transcript */}
           {result.transcript && (
             <div className="result-section">
-              <h4>Transcript</h4>
+              <h4>◈ Transcript</h4>
               <p className="transcript-text">{result.transcript}</p>
+            </div>
+          )}
+
+          {/* AI Voice Rationale */}
+          {result.ai_voice_rationale && (
+            <div className="result-section">
+              <h4>◈ Voice Authenticity</h4>
+              <p>{result.ai_voice_rationale}</p>
             </div>
           )}
 
           {/* Flags */}
           {result.flags.length > 0 && (
             <div className="result-section">
-              <h4>Red Flags</h4>
+              <h4>⚠ Detected Flags</h4>
               <div className="flags-container">
                 {result.flags.map((flag, i) => (
                   <span key={i} className="flag-chip">{flag}</span>
@@ -282,23 +289,23 @@ function AudioTab() {
 
           {/* Explanation */}
           <div className="result-section">
-            <h4>Analysis</h4>
+            <h4>◈ Analysis Summary</h4>
             <p>{result.explanation}</p>
           </div>
 
           {/* Recommended Action */}
           <div className="result-section">
-            <h4>Recommended Action</h4>
+            <h4>→ Recommended Action</h4>
             <p>{result.recommended_action}</p>
           </div>
 
           {/* Suggested Reply */}
           <div className="result-section">
-            <h4>Suggested Reply</h4>
+            <h4>◈ Suggested Response</h4>
             <div className="suggested-reply">
               <p>{result.suggested_reply}</p>
               <button className="btn btn-copy" onClick={handleCopy}>
-                {copied ? 'Copied!' : 'Copy'}
+                {copied ? '✓ Copied' : '⎘ Copy'}
               </button>
             </div>
           </div>

@@ -134,10 +134,10 @@ function ImageTab() {
 
       {/* Capture status */}
       {capture && (
-        <div className="import-banner" style={{ background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)' }}>
-          <span className="import-icon">📸</span>
+        <div className="import-banner">
+          <span className="import-icon">◫</span>
           <span className="import-text">
-            Captured from {capture.site}
+            Captured: {capture.site}
           </span>
           <button className="import-clear" onClick={handleClear} title="Clear">×</button>
         </div>
@@ -149,8 +149,8 @@ function ImageTab() {
           <img src={previewUrl} alt="Preview" className="image-preview" />
         ) : (
           <>
-            <div className="icon">🖼️</div>
-            <p>Click "Capture profile" on Tinder, or upload an image</p>
+            <div className="icon">◫</div>
+            <p>Use "Capture profile" on Tinder, or upload an image</p>
             <input
               type="file"
               accept="image/*"
@@ -168,11 +168,11 @@ function ImageTab() {
           disabled={!previewUrl || loading}
           onClick={handleAnalyze}
         >
-          {loading ? 'Analyzing...' : 'Analyze Image'}
+          {loading ? '◌ Processing...' : '▶ Analyze Image'}
         </button>
         {previewUrl && (
           <button className="btn btn-secondary" onClick={handleClear}>
-            Clear
+            ✕ Clear
           </button>
         )}
       </div>
@@ -190,25 +190,25 @@ function ImageTab() {
           {/* Dual Scores */}
           <div className="scores-row">
             <div className="score-card">
-              <div className="score-icon">🎣</div>
+              <div className="score-label">Catfish Risk</div>
               <div className="score-value" style={{ color: getScoreColor(result.catfish_score) }}>
-                {result.catfish_score}%
+                {result.catfish_score}
+                <span style={{ fontSize: '16px', opacity: 0.7 }}>%</span>
               </div>
-              <div className="score-label">Catfish Score</div>
             </div>
             <div className="score-card">
-              <div className="score-icon">🤖</div>
-              <div className="score-value" style={{ color: getScoreColor(result.ai_generated_score) }}>
-                {result.ai_generated_score}%
-              </div>
               <div className="score-label">AI-Generated</div>
+              <div className="score-value" style={{ color: getScoreColor(result.ai_generated_score) }}>
+                {result.ai_generated_score}
+                <span style={{ fontSize: '16px', opacity: 0.7 }}>%</span>
+              </div>
             </div>
           </div>
 
           {/* Flags */}
           {result.flags.length > 0 && (
             <div className="result-section">
-              <h4>Flags</h4>
+              <h4>⚠ Detected Flags</h4>
               <div className="flags-container">
                 {result.flags.map((flag, i) => (
                   <span key={i} className="flag-chip">{flag}</span>
@@ -219,20 +219,20 @@ function ImageTab() {
 
           {/* Explanation */}
           <div className="result-section">
-            <h4>Analysis</h4>
+            <h4>◈ Analysis Summary</h4>
             <p>{result.explanation}</p>
           </div>
 
           {/* Recommended Action */}
           <div className="result-section">
-            <h4>Recommended Action</h4>
+            <h4>→ Recommended Action</h4>
             <p>{result.recommended_action}</p>
           </div>
 
           {/* Reverse Search Steps */}
           {result.reverse_search_steps.length > 0 && (
             <div className="result-section">
-              <h4>Reverse Image Search Steps</h4>
+              <h4>◈ Reverse Image Search</h4>
               <ul className="search-steps">
                 {result.reverse_search_steps.map((step, i) => (
                   <li key={i}>{step}</li>
