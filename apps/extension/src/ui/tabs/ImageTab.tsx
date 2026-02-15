@@ -17,6 +17,18 @@ interface ArtifactSignal {
   severity: 'low' | 'medium' | 'high'
 }
 
+interface AIOrNotResult {
+  available: boolean
+  verdict: string | null
+  ai_confidence: number | null
+  generator: string | null
+  generator_confidence: number | null
+  deepfake_detected: boolean | null
+  nsfw_detected: boolean | null
+  quality_passed: boolean | null
+  error: string | null
+}
+
 interface ImageAnalysisResult {
   catfish_score: number
   ai_generated_score: number
@@ -29,6 +41,7 @@ interface ImageAnalysisResult {
   reverse_search_steps: string[]
   signal_count: number
   escalation_applied: boolean
+  aiornot?: AIOrNotResult
 }
 
 function ImageTab() {
@@ -333,6 +346,114 @@ function ImageTab() {
                 {result.flags.map((flag, i) => (
                   <span key={i} className="flag-chip">{flag}</span>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* AI or Not API Results */}
+          {result.aiornot?.available && (
+            <div className="result-section">
+              <h4>◈ ML Detection (AI or Not)</h4>
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(2, 1fr)', 
+                gap: '10px',
+                marginTop: '8px'
+              }}>
+                <div style={{ 
+                  padding: '12px',
+                  background: 'var(--noir-elevated)',
+                  borderRadius: '4px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ 
+                    fontSize: '10px', 
+                    color: 'var(--text-muted)', 
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                    marginBottom: '4px'
+                  }}>Verdict</div>
+                  <div style={{ 
+                    fontSize: '18px', 
+                    fontWeight: 700,
+                    color: result.aiornot.verdict === 'ai' ? '#ef4444' : '#10b981'
+                  }}>
+                    {result.aiornot.verdict === 'ai' ? 'AI' : 'Human'}
+                  </div>
+                  <div style={{ 
+                    fontSize: '11px', 
+                    color: 'var(--text-secondary)',
+                    marginTop: '2px'
+                  }}>
+                    {result.aiornot.ai_confidence ? `${Math.round(result.aiornot.ai_confidence * 100)}% confident` : ''}
+                  </div>
+                </div>
+                <div style={{ 
+                  padding: '12px',
+                  background: 'var(--noir-elevated)',
+                  borderRadius: '4px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ 
+                    fontSize: '10px', 
+                    color: 'var(--text-muted)', 
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                    marginBottom: '4px'
+                  }}>Generator</div>
+                  <div style={{ 
+                    fontSize: '14px', 
+                    fontWeight: 600,
+                    color: 'var(--text-primary)'
+                  }}>
+                    {result.aiornot.generator || 'Unknown'}
+                  </div>
+                  {result.aiornot.generator_confidence && (
+                    <div style={{ 
+                      fontSize: '11px', 
+                      color: 'var(--text-secondary)',
+                      marginTop: '2px'
+                    }}>
+                      {Math.round(result.aiornot.generator_confidence * 100)}% match
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* Deepfake / NSFW indicators */}
+              <div style={{ 
+                display: 'flex', 
+                gap: '8px', 
+                marginTop: '10px',
+                flexWrap: 'wrap'
+              }}>
+                {result.aiornot.deepfake_detected !== null && (
+                  <span style={{
+                    padding: '4px 8px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    borderRadius: '3px',
+                    background: result.aiornot.deepfake_detected ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                    color: result.aiornot.deepfake_detected ? '#ef4444' : '#10b981',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    Deepfake: {result.aiornot.deepfake_detected ? 'Yes' : 'No'}
+                  </span>
+                )}
+                {result.aiornot.nsfw_detected !== null && (
+                  <span style={{
+                    padding: '4px 8px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    borderRadius: '3px',
+                    background: result.aiornot.nsfw_detected ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                    color: result.aiornot.nsfw_detected ? '#ef4444' : '#10b981',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    NSFW: {result.aiornot.nsfw_detected ? 'Yes' : 'No'}
+                  </span>
+                )}
               </div>
             </div>
           )}

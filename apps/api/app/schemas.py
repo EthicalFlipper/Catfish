@@ -34,10 +34,23 @@ class ArtifactSignal(BaseModel):
     severity: str  # "low", "medium", "high"
 
 
+class AIOrNotResult(BaseModel):
+    """Results from AI or Not API specialized detection"""
+    available: bool  # Whether AI or Not API was used
+    verdict: Optional[str] = None  # "ai" or "human"
+    ai_confidence: Optional[float] = None  # 0.0 to 1.0
+    generator: Optional[str] = None  # e.g., "Flux", "Midjourney", "DALL-E"
+    generator_confidence: Optional[float] = None
+    deepfake_detected: Optional[bool] = None
+    nsfw_detected: Optional[bool] = None
+    quality_passed: Optional[bool] = None
+    error: Optional[str] = None  # Error message if API failed
+
+
 class ImageAnalysisResponse(BaseModel):
     """Response from image analysis"""
     catfish_score: int  # 0-100, likelihood image is stolen/fake
-    ai_generated_score: int  # 0-100, likelihood image is AI-generated
+    ai_generated_score: int  # 0-100, likelihood image is AI-generated (combined score)
     confidence_band: str  # "likely_real", "low_suspicion", "uncertain", "likely_ai", "strong_ai_indicators"
     top_signals: List[ArtifactSignal]  # Top contributing factors
     flags: List[str]
@@ -48,6 +61,8 @@ class ImageAnalysisResponse(BaseModel):
     # Calibration metadata
     signal_count: int  # Number of AI signals detected
     escalation_applied: bool  # Whether non-linear escalation was triggered
+    # AI or Not API results (specialized ML detection)
+    aiornot: Optional[AIOrNotResult] = None  # Results from AI or Not API
 
 
 # Text analysis

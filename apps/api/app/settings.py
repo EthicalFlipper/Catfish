@@ -12,13 +12,17 @@ class Settings(BaseSettings):
     api_port: int = 8000
     debug: bool = False
     
-    # OpenAI (for future use)
+    # OpenAI (for GPT + Whisper analysis)
     openai_api_key: str = ""
     
-    # Future: Whisper settings
+    # AI or Not API (specialized AI image detection)
+    # Get your key from https://aiornot.com
+    aiornot_api_key: str = ""
+    
+    # Whisper settings
     whisper_model: str = "whisper-1"
     
-    # Future: GPT settings
+    # GPT settings
     gpt_model: str = "gpt-4o-mini"
     
     class Config:

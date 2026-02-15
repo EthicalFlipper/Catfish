@@ -6,13 +6,18 @@ import base64
 import tempfile
 import subprocess
 import os
+import logging
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from typing import Optional
 
 from .settings import settings
-from .schemas import TextAnalysisRequest, TextAnalysisResponse, ImageAnalysisResponse, AudioAnalysisResponse
+from .schemas import TextAnalysisRequest, TextAnalysisResponse, ImageAnalysisResponse, AudioAnalysisResponse, AIOrNotResult
+from .aiornot import analyze_image_bytes, AIOrNotAPIError, AIOrNotResult as AIOrNotDataClass
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Catfish API",
@@ -362,7 +367,18 @@ def get_image_mock_response() -> dict:
             "Try TinEye.com as an additional reverse image search"
         ],
         "signal_count": 0,
-        "escalation_applied": False
+        "escalation_applied": False,
+        "aiornot": {
+            "available": False,
+            "verdict": None,
+            "ai_confidence": None,
+            "generator": None,
+            "generator_confidence": None,
+            "deepfake_detected": None,
+            "nsfw_detected": None,
+            "quality_passed": None,
+            "error": "API keys not configured"
+        }
     }
 
 
@@ -518,16 +534,107 @@ A clearly AI-generated image should score 60%+ on ai_generated_score."""
         return parse_llm_response(repair_content)
 
 
+async def call_aiornot_api(image_data: bytes) -> dict:
+    """
+    Call AI or Not API for specialized ML-based AI detection.
+    Returns structured result or error information.
+    """
+    if not settings.aiornot_api_key:
+        return {
+            "available": False,
+            "error": "AIORNOT_API_KEY not configured"
+        }
+    
+    # Temporarily set the API key in environment for the module
+    original_key = os.environ.get("AIORNOT_API_KEY")
+    os.environ["AIORNOT_API_KEY"] = settings.aiornot_api_key
+    
+    try:
+        result = analyze_image_bytes(image_data)
+        return {
+            "available": True,
+            "verdict": result.verdict,
+            "ai_confidence": result.ai_confidence,
+            "generator": result.generator,
+            "generator_confidence": result.generator_confidence,
+            "deepfake_detected": result.deepfake_detected,
+            "nsfw_detected": result.nsfw_detected,
+            "quality_passed": result.quality_passed,
+            "error": None
+        }
+    except AIOrNotAPIError as e:
+        logger.warning(f"AI or Not API error: {e.message}")
+        return {
+            "available": False,
+            "error": e.message
+        }
+    except Exception as e:
+        logger.warning(f"AI or Not API unexpected error: {str(e)}")
+        return {
+            "available": False,
+            "error": str(e)
+        }
+    finally:
+        # Restore original environment
+        if original_key:
+            os.environ["AIORNOT_API_KEY"] = original_key
+        elif "AIORNOT_API_KEY" in os.environ:
+            del os.environ["AIORNOT_API_KEY"]
+
+
+def combine_ai_scores(gpt_score: int, aiornot_result: dict) -> tuple[int, bool]:
+    """
+    Combine GPT-4 Vision score with AI or Not API results.
+    
+    Strategy:
+    - If AI or Not API is available and confident, weight it heavily (it's specialized)
+    - If both agree, use the higher score
+    - If they disagree significantly, investigate further
+    
+    Returns:
+        tuple of (combined_score, was_boosted)
+    """
+    if not aiornot_result.get("available"):
+        return gpt_score, False
+    
+    aiornot_confidence = aiornot_result.get("ai_confidence", 0)
+    aiornot_score = int(aiornot_confidence * 100)
+    aiornot_verdict = aiornot_result.get("verdict", "human")
+    
+    # If AI or Not says it's AI with high confidence, trust it
+    if aiornot_verdict == "ai" and aiornot_confidence >= 0.7:
+        # AI or Not is specialized - weight it 60%, GPT 40%
+        combined = int(aiornot_score * 0.6 + gpt_score * 0.4)
+        # Ensure minimum based on AI or Not confidence
+        combined = max(combined, int(aiornot_confidence * 80))
+        return combined, combined > gpt_score
+    
+    # If AI or Not says it's human with high confidence
+    if aiornot_verdict == "human" and aiornot_confidence <= 0.3:
+        # Be more conservative, but don't ignore GPT completely
+        combined = int(aiornot_score * 0.4 + gpt_score * 0.6)
+        return combined, False
+    
+    # For uncertain cases, average the scores
+    combined = int((aiornot_score + gpt_score) / 2)
+    
+    # If they strongly disagree, lean toward the higher score (safety first)
+    if abs(aiornot_score - gpt_score) > 40:
+        combined = max(aiornot_score, gpt_score) - 10  # Slight penalty for disagreement
+    
+    return max(0, min(100, combined)), combined > gpt_score
+
+
 @app.post("/analyze/image", response_model=ImageAnalysisResponse)
 async def analyze_image(image: UploadFile = File(...)):
     """
     Analyze profile image for catfishing and AI-generation indicators.
     
-    Uses a comprehensive weighted evidence model with:
-    - 5 artifact categories (texture, structure, lighting, style, technical)
-    - Non-linear score escalation for multiple signals
-    - Confidence bands for clear interpretation
-    - Detailed top signals reporting
+    Uses a dual-detection approach:
+    1. GPT-4 Vision with weighted evidence model (texture, structure, lighting, style, technical)
+    2. AI or Not API for specialized ML-based detection (when available)
+    
+    The scores are combined for maximum accuracy.
     """
     
     # Read image data
@@ -539,41 +646,84 @@ async def analyze_image(image: UploadFile = File(...)):
     if len(image_data) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Image too large (max 10MB)")
     
-    # Return mock if no API key
+    # Return mock if no OpenAI API key
     if not settings.openai_api_key:
         return get_image_mock_response()
     
     try:
-        result = await call_openai_for_image_analysis(image_data)
+        # Run both analyses in parallel for speed
+        # 1. GPT-4 Vision analysis
+        gpt_result = await call_openai_for_image_analysis(image_data)
         
-        # Validate required fields (core fields)
+        # 2. AI or Not API analysis (specialized ML detection)
+        aiornot_result = await call_aiornot_api(image_data)
+        
+        # Validate required fields from GPT
         required_fields = ["catfish_score", "ai_generated_score", "flags", "explanation", "recommended_action", "reverse_search_steps"]
         for field in required_fields:
-            if field not in result:
+            if field not in gpt_result:
                 raise ValueError(f"Missing field: {field}")
         
-        # Ensure scores are in range
-        result["catfish_score"] = max(0, min(100, int(result["catfish_score"])))
-        result["ai_generated_score"] = max(0, min(100, int(result["ai_generated_score"])))
+        # Ensure GPT scores are in range
+        gpt_result["catfish_score"] = max(0, min(100, int(gpt_result["catfish_score"])))
+        gpt_result["ai_generated_score"] = max(0, min(100, int(gpt_result["ai_generated_score"])))
         
-        # Apply calibration logic (non-linear escalation, confidence bands)
-        result = calibrate_ai_score(result)
+        # Apply calibration logic to GPT score
+        gpt_result = calibrate_ai_score(gpt_result)
+        
+        # Combine GPT and AI or Not scores
+        original_gpt_score = gpt_result["ai_generated_score"]
+        combined_score, was_boosted = combine_ai_scores(original_gpt_score, aiornot_result)
+        gpt_result["ai_generated_score"] = combined_score
+        
+        # Update confidence band based on combined score
+        gpt_result["confidence_band"] = get_confidence_band(combined_score)
+        
+        # Track if AI or Not boosted the score
+        if was_boosted:
+            gpt_result["escalation_applied"] = True
+        
+        # Add AI or Not specific signals to top_signals if it detected AI
+        if aiornot_result.get("available") and aiornot_result.get("verdict") == "ai":
+            aiornot_signal = {
+                "category": "ml_detection",
+                "signal": "aiornot_ai_detected",
+                "description": f"AI or Not API detected AI-generated image with {int(aiornot_result.get('ai_confidence', 0) * 100)}% confidence" + 
+                              (f" (Generator: {aiornot_result.get('generator')})" if aiornot_result.get('generator') else ""),
+                "weight": aiornot_result.get("ai_confidence", 0),
+                "severity": "high" if aiornot_result.get("ai_confidence", 0) >= 0.7 else "medium"
+            }
+            if "top_signals" not in gpt_result:
+                gpt_result["top_signals"] = []
+            gpt_result["top_signals"].insert(0, aiornot_signal)
+        
+        # Add deepfake flag if detected
+        if aiornot_result.get("deepfake_detected"):
+            if "flags" not in gpt_result:
+                gpt_result["flags"] = []
+            gpt_result["flags"].append("deepfake_detected")
+        
+        # Add NSFW flag if detected
+        if aiornot_result.get("nsfw_detected"):
+            if "flags" not in gpt_result:
+                gpt_result["flags"] = []
+            gpt_result["flags"].append("nsfw_content")
         
         # Ensure new fields have defaults if missing
-        if "top_signals" not in result:
-            result["top_signals"] = []
-        if "ai_detection_rationale" not in result:
-            result["ai_detection_rationale"] = result.get("explanation", "")
-        if "confidence_band" not in result:
-            result["confidence_band"] = get_confidence_band(result["ai_generated_score"])
-        if "signal_count" not in result:
-            result["signal_count"] = len(result.get("top_signals", []))
-        if "escalation_applied" not in result:
-            result["escalation_applied"] = False
+        if "top_signals" not in gpt_result:
+            gpt_result["top_signals"] = []
+        if "ai_detection_rationale" not in gpt_result:
+            gpt_result["ai_detection_rationale"] = gpt_result.get("explanation", "")
+        if "confidence_band" not in gpt_result:
+            gpt_result["confidence_band"] = get_confidence_band(gpt_result["ai_generated_score"])
+        if "signal_count" not in gpt_result:
+            gpt_result["signal_count"] = len(gpt_result.get("top_signals", []))
+        if "escalation_applied" not in gpt_result:
+            gpt_result["escalation_applied"] = False
             
         # Ensure top_signals have proper structure
         validated_signals = []
-        for signal in result.get("top_signals", []):
+        for signal in gpt_result.get("top_signals", []):
             if isinstance(signal, dict):
                 validated_signals.append({
                     "category": signal.get("category", "unknown"),
@@ -582,15 +732,37 @@ async def analyze_image(image: UploadFile = File(...)):
                     "weight": float(signal.get("weight", 0.0)),
                     "severity": signal.get("severity", "low")
                 })
-        result["top_signals"] = validated_signals
+        gpt_result["top_signals"] = validated_signals
+        
+        # Add AI or Not result to response
+        gpt_result["aiornot"] = {
+            "available": aiornot_result.get("available", False),
+            "verdict": aiornot_result.get("verdict"),
+            "ai_confidence": aiornot_result.get("ai_confidence"),
+            "generator": aiornot_result.get("generator"),
+            "generator_confidence": aiornot_result.get("generator_confidence"),
+            "deepfake_detected": aiornot_result.get("deepfake_detected"),
+            "nsfw_detected": aiornot_result.get("nsfw_detected"),
+            "quality_passed": aiornot_result.get("quality_passed"),
+            "error": aiornot_result.get("error")
+        }
+        
+        # Update rationale to include AI or Not info
+        if aiornot_result.get("available"):
+            aiornot_summary = f"\n\nAI or Not API: {aiornot_result.get('verdict', 'unknown').upper()} " \
+                            f"({int(aiornot_result.get('ai_confidence', 0) * 100)}% confidence)"
+            if aiornot_result.get("generator"):
+                aiornot_summary += f", Generator: {aiornot_result.get('generator')}"
+            gpt_result["ai_detection_rationale"] = gpt_result.get("ai_detection_rationale", "") + aiornot_summary
         
         # Remove category_scores from response (internal use only)
-        result.pop("category_scores", None)
+        gpt_result.pop("category_scores", None)
         
-        return result
+        return gpt_result
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse AI response: {str(e)}")
     except Exception as e:
+        logger.exception("Image analysis failed")
         raise HTTPException(status_code=500, detail=f"Image analysis failed: {str(e)}")
 
 
