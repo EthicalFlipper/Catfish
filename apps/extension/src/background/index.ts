@@ -93,9 +93,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       return true
 
+    case 'FETCH_PROFILE_IMAGE':
+      // NEW: Fetch the actual image from URL (Source Extraction strategy)
+      // This gets the CLEAN image without UI overlays
+      console.log('[Catfish] Fetching profile image from URL...')
+      
+      handleFetchProfileImage(message.imageUrl, message.site, message.page_url, sender.tab?.id)
+        .then((result) => sendResponse(result))
+        .catch((err) => {
+          console.error('[Catfish] Fetch image error:', err)
+          sendResponse({ error: err.message })
+        })
+      return true // Keep channel open for async
+
     case 'CAPTURE_VISIBLE_TAB':
-      // Capture screenshot of the current visible tab
-      console.log('[Catfish] Capturing visible tab...', message.cropBounds ? 'with crop' : 'full page')
+      // FALLBACK: Capture screenshot of the current visible tab
+      // Only used when source extraction fails
+      console.log('[Catfish] Fallback: Capturing visible tab screenshot...')
       chrome.tabs.captureVisibleTab({ format: 'png' }, async (dataUrl) => {
         if (chrome.runtime.lastError) {
           console.error('[Catfish] captureVisibleTab error:', chrome.runtime.lastError)
@@ -122,11 +136,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           page_url: message.page_url || '',
           captured_at: Date.now(),
           cropped: !!message.cropBounds,
+          sourceType: 'screenshot_fallback',  // Mark as fallback
         }
         
         // Store in chrome.storage.local
         chrome.storage.local.set({ lastImageCapture: captureData }, () => {
-          console.log('[Catfish] Screenshot stored in storage')
+          console.log('[Catfish] Screenshot stored in storage (fallback)')
           
           // Open side panel
           if (sender.tab?.id) {
@@ -182,6 +197,127 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((error) => console.error('[Catfish] Side panel error:', error))
+
+// ============= Source Image Extraction Logic =============
+
+/**
+ * Fetch a profile image from URL and store it as clean image data.
+ * This is the SOURCE EXTRACTION strategy - gets the raw image
+ * without any UI overlays that would appear in a screenshot.
+ * 
+ * The fetch happens in the background script to avoid CORS issues,
+ * since extensions have different security policies than web pages.
+ */
+async function handleFetchProfileImage(
+  imageUrl: string,
+  site: string,
+  pageUrl: string,
+  tabId?: number
+): Promise<{ ok: boolean; error?: string }> {
+  
+  if (!imageUrl) {
+    throw new Error('No image URL provided')
+  }
+  
+  console.log('[Catfish] Fetching image:', imageUrl.substring(0, 80) + '...')
+  
+  try {
+    // Fetch the image from the URL
+    // The background script can bypass CORS restrictions
+    const response = await fetch(imageUrl, {
+      method: 'GET',
+      // Some CDNs need these headers
+      headers: {
+        'Accept': 'image/*,*/*',
+      },
+      // Use cors mode, but background scripts often bypass this anyway
+      mode: 'cors',
+      credentials: 'omit',  // Don't send cookies to CDN
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+    
+    // Get the content type to determine image format
+    const contentType = response.headers.get('content-type') || 'image/jpeg'
+    console.log('[Catfish] Image content-type:', contentType)
+    
+    // Read the image as a blob
+    const blob = await response.blob()
+    console.log('[Catfish] Image blob size:', blob.size, 'bytes')
+    
+    if (blob.size === 0) {
+      throw new Error('Empty image received')
+    }
+    
+    // Check if it's too large (10MB limit)
+    if (blob.size > 10 * 1024 * 1024) {
+      throw new Error('Image too large (>10MB)')
+    }
+    
+    // Convert blob to data URL for storage
+    const dataUrl = await blobToDataUrl(blob)
+    
+    // Store the clean image data
+    const captureData = {
+      dataUrl,
+      site: site || 'unknown',
+      page_url: pageUrl || '',
+      captured_at: Date.now(),
+      sourceType: 'source_extraction',  // Mark as clean source extraction
+      originalUrl: imageUrl,
+      contentType,
+      sizeBytes: blob.size,
+    }
+    
+    // Store in chrome.storage.local
+    await new Promise<void>((resolve, reject) => {
+      chrome.storage.local.set({ lastImageCapture: captureData }, () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message))
+        } else {
+          resolve()
+        }
+      })
+    })
+    
+    console.log('[Catfish] Clean image stored successfully (source extraction)')
+    
+    // Open side panel
+    if (tabId) {
+      chrome.sidePanel.open({ tabId }).catch(() => {})
+    }
+    
+    return { ok: true }
+    
+  } catch (err) {
+    const error = err as Error
+    console.error('[Catfish] Failed to fetch image:', error.message)
+    
+    // If fetch fails, it might be due to CORS or the URL being invalid
+    // Don't automatically fall back - let the content script decide
+    throw new Error(`Failed to fetch image: ${error.message}`)
+  }
+}
+
+/**
+ * Convert a Blob to a data URL string
+ */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+      } else {
+        reject(new Error('Failed to convert blob to data URL'))
+      }
+    }
+    reader.onerror = () => reject(new Error('FileReader error'))
+    reader.readAsDataURL(blob)
+  })
+}
 
 // ============= Audio Recording Logic =============
 

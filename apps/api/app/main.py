@@ -99,7 +99,14 @@ def get_mock_response() -> dict:
 
 def parse_llm_response(content: str) -> dict:
     """Parse LLM response, stripping markdown if present"""
+    if not content:
+        raise json.JSONDecodeError("Empty response from LLM", "", 0)
+    
     text = content.strip()
+    
+    if not text:
+        raise json.JSONDecodeError("Empty response after stripping whitespace", "", 0)
+    
     # Remove markdown code blocks if present
     if text.startswith("```"):
         lines = text.split("\n")
@@ -108,8 +115,26 @@ def parse_llm_response(content: str) -> dict:
         # Remove last line (```)
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
-        text = "\n".join(lines)
-    return json.loads(text)
+        text = "\n".join(lines).strip()
+    
+    # Try to find JSON object in the text if it's not pure JSON
+    if not text.startswith("{"):
+        # Look for JSON object in the response
+        start_idx = text.find("{")
+        end_idx = text.rfind("}") + 1
+        if start_idx != -1 and end_idx > start_idx:
+            text = text[start_idx:end_idx]
+    
+    if not text:
+        raise json.JSONDecodeError("No JSON content found in LLM response", content[:100], 0)
+    
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        # Log the problematic content for debugging
+        logger.error(f"Failed to parse LLM response: {e}")
+        logger.error(f"Raw content (first 500 chars): {content[:500]}")
+        raise
 
 
 async def call_openai_for_analysis(text: str, user_notes: str | None) -> dict:
@@ -628,13 +653,10 @@ def combine_ai_scores(gpt_score: int, aiornot_result: dict) -> tuple[int, bool]:
 @app.post("/analyze/image", response_model=ImageAnalysisResponse)
 async def analyze_image(image: UploadFile = File(...)):
     """
-    Analyze profile image for catfishing and AI-generation indicators.
+    Analyze profile image for AI-generation indicators using AI or Not specialist API.
     
-    Uses a dual-detection approach:
-    1. GPT-4 Vision with weighted evidence model (texture, structure, lighting, style, technical)
-    2. AI or Not API for specialized ML-based detection (when available)
-    
-    The scores are combined for maximum accuracy.
+    NO LLM CALLS - Uses only the specialized AI or Not ML detection API.
+    This avoids safety refusals from general-purpose LLMs when analyzing faces.
     """
     
     # Read image data
@@ -646,121 +668,126 @@ async def analyze_image(image: UploadFile = File(...)):
     if len(image_data) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Image too large (max 10MB)")
     
-    # Return mock if no OpenAI API key
-    if not settings.openai_api_key:
-        return get_image_mock_response()
+    # Check if AI or Not API key is configured
+    if not settings.aiornot_api_key:
+        raise HTTPException(
+            status_code=500, 
+            detail="AIORNOT_API_KEY not configured. Please add it to your .env file."
+        )
     
     try:
-        # Run both analyses in parallel for speed
-        # 1. GPT-4 Vision analysis
-        gpt_result = await call_openai_for_image_analysis(image_data)
+        # ============================================================
+        # ONLY use the AI or Not specialist API - NO LLM CALLS
+        # This is a dedicated ML model for AI image detection
+        # that won't refuse to analyze faces
+        # ============================================================
         
-        # 2. AI or Not API analysis (specialized ML detection)
         aiornot_result = await call_aiornot_api(image_data)
         
-        # Validate required fields from GPT
-        required_fields = ["catfish_score", "ai_generated_score", "flags", "explanation", "recommended_action", "reverse_search_steps"]
-        for field in required_fields:
-            if field not in gpt_result:
-                raise ValueError(f"Missing field: {field}")
+        # Check if the API call was successful
+        if not aiornot_result.get("available"):
+            error_msg = aiornot_result.get("error", "Unknown error")
+            raise HTTPException(status_code=500, detail=f"AI or Not API error: {error_msg}")
         
-        # Ensure GPT scores are in range
-        gpt_result["catfish_score"] = max(0, min(100, int(gpt_result["catfish_score"])))
-        gpt_result["ai_generated_score"] = max(0, min(100, int(gpt_result["ai_generated_score"])))
+        # Transform AI or Not result to our response schema
+        ai_confidence = aiornot_result.get("ai_confidence", 0) or 0
+        ai_score = int(ai_confidence * 100)
+        verdict = aiornot_result.get("verdict", "human")
+        generator = aiornot_result.get("generator")
         
-        # Apply calibration logic to GPT score
-        gpt_result = calibrate_ai_score(gpt_result)
+        # Determine confidence band based on AI score
+        confidence_band = get_confidence_band(ai_score)
         
-        # Combine GPT and AI or Not scores
-        original_gpt_score = gpt_result["ai_generated_score"]
-        combined_score, was_boosted = combine_ai_scores(original_gpt_score, aiornot_result)
-        gpt_result["ai_generated_score"] = combined_score
-        
-        # Update confidence band based on combined score
-        gpt_result["confidence_band"] = get_confidence_band(combined_score)
-        
-        # Track if AI or Not boosted the score
-        if was_boosted:
-            gpt_result["escalation_applied"] = True
-        
-        # Add AI or Not specific signals to top_signals if it detected AI
-        if aiornot_result.get("available") and aiornot_result.get("verdict") == "ai":
-            aiornot_signal = {
-                "category": "ml_detection",
-                "signal": "aiornot_ai_detected",
-                "description": f"AI or Not API detected AI-generated image with {int(aiornot_result.get('ai_confidence', 0) * 100)}% confidence" + 
-                              (f" (Generator: {aiornot_result.get('generator')})" if aiornot_result.get('generator') else ""),
-                "weight": aiornot_result.get("ai_confidence", 0),
-                "severity": "high" if aiornot_result.get("ai_confidence", 0) >= 0.7 else "medium"
-            }
-            if "top_signals" not in gpt_result:
-                gpt_result["top_signals"] = []
-            gpt_result["top_signals"].insert(0, aiornot_signal)
-        
-        # Add deepfake flag if detected
+        # Build flags list
+        flags = []
+        if verdict == "ai":
+            flags.append("ai_generated_detected")
+        if generator:
+            flags.append(f"generator_{generator.lower().replace(' ', '_')}")
         if aiornot_result.get("deepfake_detected"):
-            if "flags" not in gpt_result:
-                gpt_result["flags"] = []
-            gpt_result["flags"].append("deepfake_detected")
-        
-        # Add NSFW flag if detected
+            flags.append("deepfake_detected")
         if aiornot_result.get("nsfw_detected"):
-            if "flags" not in gpt_result:
-                gpt_result["flags"] = []
-            gpt_result["flags"].append("nsfw_content")
+            flags.append("nsfw_content")
         
-        # Ensure new fields have defaults if missing
-        if "top_signals" not in gpt_result:
-            gpt_result["top_signals"] = []
-        if "ai_detection_rationale" not in gpt_result:
-            gpt_result["ai_detection_rationale"] = gpt_result.get("explanation", "")
-        if "confidence_band" not in gpt_result:
-            gpt_result["confidence_band"] = get_confidence_band(gpt_result["ai_generated_score"])
-        if "signal_count" not in gpt_result:
-            gpt_result["signal_count"] = len(gpt_result.get("top_signals", []))
-        if "escalation_applied" not in gpt_result:
-            gpt_result["escalation_applied"] = False
-            
-        # Ensure top_signals have proper structure
-        validated_signals = []
-        for signal in gpt_result.get("top_signals", []):
-            if isinstance(signal, dict):
-                validated_signals.append({
-                    "category": signal.get("category", "unknown"),
-                    "signal": signal.get("signal", "unknown"),
-                    "description": signal.get("description", ""),
-                    "weight": float(signal.get("weight", 0.0)),
-                    "severity": signal.get("severity", "low")
-                })
-        gpt_result["top_signals"] = validated_signals
+        # Build top signals
+        top_signals = []
+        if verdict == "ai" and ai_confidence:
+            top_signals.append({
+                "category": "ml_detection",
+                "signal": "ai_generated",
+                "description": f"AI or Not detected this as AI-generated with {ai_score}% confidence" +
+                              (f". Likely generator: {generator}" if generator else ""),
+                "weight": ai_confidence,
+                "severity": "high" if ai_confidence >= 0.7 else ("medium" if ai_confidence >= 0.4 else "low")
+            })
         
-        # Add AI or Not result to response
-        gpt_result["aiornot"] = {
-            "available": aiornot_result.get("available", False),
-            "verdict": aiornot_result.get("verdict"),
-            "ai_confidence": aiornot_result.get("ai_confidence"),
-            "generator": aiornot_result.get("generator"),
-            "generator_confidence": aiornot_result.get("generator_confidence"),
-            "deepfake_detected": aiornot_result.get("deepfake_detected"),
-            "nsfw_detected": aiornot_result.get("nsfw_detected"),
-            "quality_passed": aiornot_result.get("quality_passed"),
-            "error": aiornot_result.get("error")
+        if aiornot_result.get("deepfake_detected"):
+            top_signals.append({
+                "category": "ml_detection",
+                "signal": "deepfake",
+                "description": "Deepfake manipulation detected in this image",
+                "weight": 0.9,
+                "severity": "high"
+            })
+        
+        # Build explanation based on the results
+        if verdict == "ai":
+            explanation = f"This image appears to be AI-generated ({ai_score}% confidence)."
+            if generator:
+                explanation += f" The detected generator is {generator}."
+            if aiornot_result.get("deepfake_detected"):
+                explanation += " Deepfake manipulation was also detected."
+        else:
+            explanation = f"This image appears to be a real photograph ({100 - ai_score}% confidence)."
+            if aiornot_result.get("deepfake_detected"):
+                explanation += " However, deepfake manipulation was detected."
+        
+        # Build recommended action
+        if ai_score >= 70 or aiornot_result.get("deepfake_detected"):
+            recommended_action = "This image shows strong signs of AI generation or manipulation. Exercise extreme caution and verify the person's identity through video call before continuing."
+        elif ai_score >= 40:
+            recommended_action = "This image has some characteristics that may indicate AI generation. Consider asking for additional photos or a video call to verify identity."
+        else:
+            recommended_action = "This image appears to be authentic. Standard precautions apply - still verify identity through video call before sharing personal information."
+        
+        # Build the response
+        result = {
+            "catfish_score": ai_score,  # Use AI score as catfish indicator
+            "ai_generated_score": ai_score,
+            "confidence_band": confidence_band,
+            "top_signals": top_signals,
+            "flags": flags,
+            "explanation": explanation,
+            "ai_detection_rationale": f"Analysis performed by AI or Not ML detection API. Verdict: {verdict.upper()}, Confidence: {ai_score}%"
+                                      + (f", Generator: {generator}" if generator else ""),
+            "recommended_action": recommended_action,
+            "reverse_search_steps": [
+                "Save or screenshot this image",
+                "Go to images.google.com and click the camera icon",
+                "Upload the image to search for matches",
+                "Check if this image appears elsewhere with different identities",
+                "Try TinEye.com for additional reverse image search"
+            ],
+            "signal_count": len(top_signals),
+            "escalation_applied": ai_score >= 70,
+            "aiornot": {
+                "available": True,
+                "verdict": verdict,
+                "ai_confidence": ai_confidence,
+                "generator": generator,
+                "generator_confidence": aiornot_result.get("generator_confidence"),
+                "deepfake_detected": aiornot_result.get("deepfake_detected"),
+                "nsfw_detected": aiornot_result.get("nsfw_detected"),
+                "quality_passed": aiornot_result.get("quality_passed"),
+                "error": None
+            }
         }
         
-        # Update rationale to include AI or Not info
-        if aiornot_result.get("available"):
-            aiornot_summary = f"\n\nAI or Not API: {aiornot_result.get('verdict', 'unknown').upper()} " \
-                            f"({int(aiornot_result.get('ai_confidence', 0) * 100)}% confidence)"
-            if aiornot_result.get("generator"):
-                aiornot_summary += f", Generator: {aiornot_result.get('generator')}"
-            gpt_result["ai_detection_rationale"] = gpt_result.get("ai_detection_rationale", "") + aiornot_summary
+        return result
         
-        # Remove category_scores from response (internal use only)
-        gpt_result.pop("category_scores", None)
-        
-        return gpt_result
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse AI response: {str(e)}")
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         logger.exception("Image analysis failed")
         raise HTTPException(status_code=500, detail=f"Image analysis failed: {str(e)}")

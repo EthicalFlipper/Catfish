@@ -299,97 +299,296 @@ async function handleAnalyzeClick(button: HTMLButtonElement) {
   }
 }
 
-// Find the profile card/image element on Tinder
-function findProfileElement(): { element: Element; bounds: DOMRect } | null {
-  const profileSelectors = [
+// =============================================================================
+// SOURCE IMAGE EXTRACTION (Not Screenshot)
+// =============================================================================
+// This extracts the ACTUAL image URL from the page, avoiding UI overlay issues.
+// Strategy: Find <img src> or <div style="background-image"> and fetch the raw URL.
+
+interface ExtractedImage {
+  url: string
+  type: 'img_src' | 'background_image'
+  element: Element
+  width: number
+  height: number
+}
+
+/**
+ * Extract the main profile image URL from the page.
+ * This is the SOURCE EXTRACTION strategy - gets the clean image URL
+ * instead of taking a screenshot that includes UI overlays.
+ */
+function extractProfileImageUrl(): ExtractedImage | null {
+  console.log('[Catfish] Extracting profile image URL...')
+  
+  // =========================================
+  // Strategy 1: Find the largest visible <img>
+  // =========================================
+  const images = Array.from(document.querySelectorAll('img')) as HTMLImageElement[]
+  let bestImg: HTMLImageElement | null = null
+  let bestArea = 0
+  
+  for (const img of images) {
+    // Skip tiny images (icons, avatars, etc.)
+    if (!img.src || img.src.startsWith('data:')) continue
+    
+    const bounds = img.getBoundingClientRect()
+    const area = bounds.width * bounds.height
+    
+    // Must be reasonably large and visible
+    if (bounds.width >= 200 && bounds.height >= 200 && 
+        bounds.top < window.innerHeight && bounds.bottom > 0 &&
+        area > bestArea) {
+      
+      // Check if it looks like a profile image (not UI element)
+      const src = img.src.toLowerCase()
+      const isProfileImage = 
+        src.includes('images-ssl') ||  // Tinder CDN
+        src.includes('gotinder') ||
+        src.includes('tindersparks') ||
+        src.includes('profile') ||
+        src.includes('photo') ||
+        src.includes('user') ||
+        src.includes('media') ||
+        src.includes('cdn') ||
+        // Generic image hosting
+        src.includes('cloudfront') ||
+        src.includes('amazonaws') ||
+        src.includes('imgix') ||
+        // Exclude obvious non-profile images
+        (!src.includes('logo') && 
+         !src.includes('icon') && 
+         !src.includes('emoji') &&
+         !src.includes('badge') &&
+         !src.includes('button'))
+      
+      if (isProfileImage) {
+        bestArea = area
+        bestImg = img
+      }
+    }
+  }
+  
+  if (bestImg && bestImg.src) {
+    console.log('[Catfish] Found profile image via <img> tag:', bestImg.src.substring(0, 80) + '...')
+    const bounds = bestImg.getBoundingClientRect()
+    return {
+      url: bestImg.src,
+      type: 'img_src',
+      element: bestImg,
+      width: bounds.width,
+      height: bounds.height
+    }
+  }
+  
+  // =========================================
+  // Strategy 2: Find div with background-image
+  // (Common on Tinder/Bumble for card-style layouts)
+  // =========================================
+  console.log('[Catfish] No <img> found, checking background-image...')
+  
+  // Selectors for profile card containers
+  const containerSelectors = [
     '[class*="profileCard"]',
-    '[class*="Bdrs(8px)"][class*="Bgc(#fff)"]',
     '[class*="recCard"]',
     '[class*="StretchedBox"]',
     '[class*="keen-slider__slide"]',
-    '[class*="profileCard__card"]',
-    '[data-testid="profile"]',
-    'main [class*="Pos(r)"][class*="Ovx(h)"]',
-    'main img[class*="StretchedBox"]',
-    'main [class*="Expand"]',
+    '[class*="Expand"]',
+    '[class*="gamepad-profile"]',
+    '[data-testid*="profile"]',
+    'main [class*="Pos(r)"]',
+    'main [class*="Bgp(c)"]',  // Tinder: background-position: center
+    'main [class*="Bgsz(cv)"]', // Tinder: background-size: cover
   ]
   
-  for (const selector of profileSelectors) {
+  // Search in profile containers and their children
+  for (const selector of containerSelectors) {
     try {
-      const el = document.querySelector(selector)
-      if (el) {
-        const bounds = el.getBoundingClientRect()
-        if (bounds.width >= 100 && bounds.height >= 100 && bounds.top < window.innerHeight) {
-          return { element: el, bounds }
+      const containers = document.querySelectorAll(selector)
+      for (const container of containers) {
+        const bgUrl = extractBackgroundImageUrl(container)
+        if (bgUrl) {
+          const bounds = container.getBoundingClientRect()
+          if (bounds.width >= 200 && bounds.height >= 200) {
+            console.log('[Catfish] Found profile image via background-image:', bgUrl.substring(0, 80) + '...')
+            return {
+              url: bgUrl,
+              type: 'background_image',
+              element: container,
+              width: bounds.width,
+              height: bounds.height
+            }
+          }
+        }
+        
+        // Check children too
+        const children = container.querySelectorAll('div, span')
+        for (const child of children) {
+          const childBgUrl = extractBackgroundImageUrl(child)
+          if (childBgUrl) {
+            const bounds = child.getBoundingClientRect()
+            if (bounds.width >= 200 && bounds.height >= 200) {
+              console.log('[Catfish] Found profile image via child background-image:', childBgUrl.substring(0, 80) + '...')
+              return {
+                url: childBgUrl,
+                type: 'background_image',
+                element: child,
+                width: bounds.width,
+                height: bounds.height
+              }
+            }
+          }
         }
       }
     } catch {
-      // Try next selector
+      // Selector failed, continue
     }
   }
   
-  // Fallback: largest image in main area
-  const images = Array.from(document.querySelectorAll('main img')) as HTMLImageElement[]
-  let largestImg: HTMLImageElement | null = null
-  let largestArea = 0
+  // =========================================
+  // Strategy 3: Brute force - check ALL visible divs
+  // =========================================
+  console.log('[Catfish] Fallback: checking all divs for background-image...')
   
-  for (const img of images) {
-    const bounds = img.getBoundingClientRect()
-    const area = bounds.width * bounds.height
-    if (area > largestArea && bounds.width > 150 && bounds.height > 150) {
-      largestArea = area
-      largestImg = img
+  const allDivs = document.querySelectorAll('div')
+  let bestBgDiv: Element | null = null
+  let bestBgUrl = ''
+  let bestBgArea = 0
+  
+  for (const div of allDivs) {
+    const bgUrl = extractBackgroundImageUrl(div)
+    if (bgUrl) {
+      const bounds = div.getBoundingClientRect()
+      const area = bounds.width * bounds.height
+      
+      if (bounds.width >= 200 && bounds.height >= 200 &&
+          bounds.top < window.innerHeight && bounds.bottom > 0 &&
+          area > bestBgArea) {
+        // Exclude obvious non-profile patterns
+        const isLikelyProfile = 
+          !bgUrl.includes('gradient') &&
+          !bgUrl.includes('logo') &&
+          !bgUrl.includes('icon') &&
+          (bgUrl.includes('http://') || bgUrl.includes('https://'))
+        
+        if (isLikelyProfile) {
+          bestBgArea = area
+          bestBgDiv = div
+          bestBgUrl = bgUrl
+        }
+      }
     }
   }
   
-  if (largestImg) {
-    return { element: largestImg, bounds: largestImg.getBoundingClientRect() }
+  if (bestBgDiv && bestBgUrl) {
+    const bounds = bestBgDiv.getBoundingClientRect()
+    console.log('[Catfish] Found profile image via brute-force search:', bestBgUrl.substring(0, 80) + '...')
+    return {
+      url: bestBgUrl,
+      type: 'background_image',
+      element: bestBgDiv,
+      width: bounds.width,
+      height: bounds.height
+    }
+  }
+  
+  console.log('[Catfish] Could not find profile image URL')
+  return null
+}
+
+/**
+ * Extract URL from background-image CSS property
+ */
+function extractBackgroundImageUrl(element: Element): string | null {
+  const style = window.getComputedStyle(element)
+  const bgImage = style.backgroundImage
+  
+  if (!bgImage || bgImage === 'none') return null
+  
+  // Parse url() from background-image
+  // Handles: url("https://..."), url('https://...'), url(https://...)
+  const match = bgImage.match(/url\(["']?(https?:\/\/[^"')]+)["']?\)/)
+  if (match && match[1]) {
+    return match[1]
   }
   
   return null
 }
 
-// Handle capture button click - screenshot and send to extension
-function handleCaptureClick(button: HTMLButtonElement) {
+/**
+ * Handle capture button click - EXTRACT SOURCE IMAGE (not screenshot)
+ */
+async function handleCaptureClick(button: HTMLButtonElement) {
   button.classList.add('loading')
-  button.textContent = 'Capturing...'
+  button.textContent = 'Extracting...'
   
-  // Find the profile element to get crop bounds
-  const profileResult = findProfileElement()
-  
-  let cropBounds = null
-  if (profileResult) {
-    const { bounds } = profileResult
-    const padding = 10
-    cropBounds = {
-      x: Math.max(0, bounds.left - padding) * window.devicePixelRatio,
-      y: Math.max(0, bounds.top - padding) * window.devicePixelRatio,
-      width: (bounds.width + padding * 2) * window.devicePixelRatio,
-      height: (bounds.height + padding * 2) * window.devicePixelRatio,
+  try {
+    // Extract the profile image URL
+    const extracted = extractProfileImageUrl()
+    
+    if (!extracted) {
+      // Fallback to screenshot if no image URL found
+      console.log('[Catfish] No image URL found, falling back to screenshot...')
+      button.textContent = 'Capturing...'
+      
+      chrome.runtime.sendMessage({
+        type: 'CAPTURE_VISIBLE_TAB',
+        site: 'tinder',
+        page_url: window.location.href,
+        fallback: true,
+      }, (response) => {
+        button.classList.remove('loading')
+        button.textContent = 'Capture Profile'
+        
+        if (chrome.runtime.lastError) {
+          console.error('[Catfish] Capture error:', chrome.runtime.lastError)
+        } else if (response?.error) {
+          console.error('[Catfish] Capture error:', response.error)
+        } else {
+          button.classList.add('success')
+          setTimeout(() => button.classList.remove('success'), 1500)
+        }
+      })
+      return
     }
-  }
-  
-  // Send message to background to capture the tab
-  chrome.runtime.sendMessage({
-    type: 'CAPTURE_VISIBLE_TAB',
-    site: 'tinder',
-    page_url: window.location.href,
-    cropBounds,
-    devicePixelRatio: window.devicePixelRatio,
-  }, (response) => {
+    
+    console.log('[Catfish] Sending image URL to background for fetch:', extracted.url.substring(0, 80) + '...')
+    
+    // Send the URL to background script to fetch the clean image
+    // (Background script handles CORS by fetching from extension context)
+    chrome.runtime.sendMessage({
+      type: 'FETCH_PROFILE_IMAGE',
+      imageUrl: extracted.url,
+      site: 'tinder',
+      page_url: window.location.href,
+      extractionType: extracted.type,
+      dimensions: {
+        width: extracted.width,
+        height: extracted.height
+      }
+    }, (response) => {
+      button.classList.remove('loading')
+      button.textContent = 'Capture Profile'
+      
+      if (chrome.runtime.lastError) {
+        console.error('[Catfish] Fetch error:', chrome.runtime.lastError)
+      } else if (response?.error) {
+        console.error('[Catfish] Fetch error:', response.error)
+        // Show error state briefly
+        button.textContent = 'Error - Retry'
+        setTimeout(() => { button.textContent = 'Capture Profile' }, 2000)
+      } else {
+        console.log('[Catfish] Clean image fetched successfully')
+        button.classList.add('success')
+        setTimeout(() => button.classList.remove('success'), 1500)
+      }
+    })
+    
+  } catch (err) {
+    console.error('[Catfish] Image extraction error:', err)
     button.classList.remove('loading')
     button.textContent = 'Capture Profile'
-    
-    if (chrome.runtime.lastError) {
-      console.error('[Catfish] Capture error:', chrome.runtime.lastError)
-    } else if (response?.error) {
-      console.error('[Catfish] Capture error:', response.error)
-    } else {
-      // Brief success indication
-      button.classList.add('success')
-      setTimeout(() => button.classList.remove('success'), 1500)
-    }
-  })
+  }
 }
 
 // Create and inject the buttons

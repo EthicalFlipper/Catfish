@@ -7,6 +7,10 @@ interface ImageCapture {
   site: string
   page_url: string
   captured_at: number
+  sourceType?: 'source_extraction' | 'screenshot_fallback'
+  originalUrl?: string
+  contentType?: string
+  sizeBytes?: number
 }
 
 interface ArtifactSignal {
@@ -125,22 +129,55 @@ function ImageTab() {
         formData.append('image', selectedFile)
       } else if (capture?.dataUrl) {
         const blob = dataUrlToBlob(capture.dataUrl)
-        formData.append('image', blob, 'screenshot.png')
+        formData.append('image', blob, 'profile.png')
       }
 
+      // IMPORTANT: Do NOT set Content-Type header manually for FormData
+      // The browser will automatically set it with the correct boundary
       const response = await fetch(`${API_URL}/analyze/image`, {
         method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          // DO NOT ADD 'Content-Type' here - browser sets it automatically for FormData
+        },
         body: formData,
       })
 
+      // Handle error responses properly
       if (!response.ok) {
-        const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
-        throw new Error(err.detail || `HTTP ${response.status}`)
+        // Read as text first to see the actual error (might not be JSON)
+        const errorText = await response.text()
+        console.error('[Catfish] API Error Response:', response.status, errorText)
+        
+        // Try to parse as JSON for structured error
+        let errorMessage = `HTTP ${response.status}`
+        try {
+          const errorJson = JSON.parse(errorText)
+          errorMessage = errorJson.detail || errorJson.message || errorMessage
+        } catch {
+          // If not JSON, use the text directly (truncated)
+          if (errorText) {
+            errorMessage = errorText.substring(0, 200)
+          }
+        }
+        throw new Error(errorMessage)
       }
 
-      const data: ImageAnalysisResult = await response.json()
+      // Parse successful response
+      const responseText = await response.text()
+      console.log('[Catfish] API Response:', responseText.substring(0, 200) + '...')
+      
+      let data: ImageAnalysisResult
+      try {
+        data = JSON.parse(responseText)
+      } catch (parseError) {
+        console.error('[Catfish] JSON Parse Error:', parseError, 'Response:', responseText)
+        throw new Error('Invalid response from server')
+      }
+      
       setResult(data)
     } catch (err) {
+      console.error('[Catfish] Analysis error:', err)
       setError(err instanceof Error ? err.message : 'Failed to analyze image')
     } finally {
       setLoading(false)
@@ -194,9 +231,59 @@ function ImageTab() {
         <div className="import-banner">
           <span className="import-icon">◫</span>
           <span className="import-text">
-            Captured: {capture.site}
+            {capture.sourceType === 'source_extraction' ? (
+              <>✓ Clean Image: {capture.site}</>
+            ) : capture.sourceType === 'screenshot_fallback' ? (
+              <>⚠ Screenshot: {capture.site}</>
+            ) : (
+              <>Captured: {capture.site}</>
+            )}
           </span>
+          {capture.sizeBytes && (
+            <span style={{ 
+              fontSize: '10px', 
+              color: 'var(--text-muted)',
+              marginLeft: '8px'
+            }}>
+              {(capture.sizeBytes / 1024).toFixed(0)} KB
+            </span>
+          )}
           <button className="import-clear" onClick={handleClear} title="Clear">×</button>
+        </div>
+      )}
+      
+      {/* Source extraction info */}
+      {capture?.sourceType === 'source_extraction' && (
+        <div style={{
+          fontSize: '10px',
+          color: 'var(--status-safe)',
+          padding: '6px 12px',
+          background: 'rgba(5, 150, 105, 0.1)',
+          borderRadius: '4px',
+          marginBottom: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px'
+        }}>
+          <span>✓</span>
+          <span>Source image extracted (no UI overlays)</span>
+        </div>
+      )}
+      
+      {capture?.sourceType === 'screenshot_fallback' && (
+        <div style={{
+          fontSize: '10px',
+          color: 'var(--status-warning)',
+          padding: '6px 12px',
+          background: 'rgba(217, 119, 6, 0.1)',
+          borderRadius: '4px',
+          marginBottom: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px'
+        }}>
+          <span>⚠</span>
+          <span>Screenshot fallback (may include UI elements)</span>
         </div>
       )}
 

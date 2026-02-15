@@ -177,36 +177,45 @@ def analyze_image_bytes(image_data: bytes) -> AIOrNotResult:
     # Get API key
     api_key = get_api_key()
     
-    # Prepare request
+    # Determine image type from magic bytes for filename
+    extension = "png"
+    mime_type = "image/png"
+    if image_data[:2] == b'\xff\xd8':
+        extension = "jpg"
+        mime_type = "image/jpeg"
+    elif image_data[:4] == b'\x89PNG':
+        extension = "png"
+        mime_type = "image/png"
+    elif image_data[:4] == b'RIFF':
+        extension = "webp"
+        mime_type = "image/webp"
+    elif image_data[:6] in (b'GIF87a', b'GIF89a'):
+        extension = "gif"
+        mime_type = "image/gif"
+    
+    # ==========================================================
+    # IMPORTANT: Use multipart/form-data for the AI or Not API
+    # DO NOT manually set Content-Type header - requests does it
+    # automatically with the correct boundary when using 'files'
+    # ==========================================================
+    
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Accept": "application/json",
+        # DO NOT set Content-Type here - requests sets it automatically
     }
     
-    # Encode image as base64
-    base64_image = base64.b64encode(image_data).decode("utf-8")
-    
-    # Determine image type from magic bytes
-    content_type = "image/png"
-    if image_data[:2] == b'\xff\xd8':
-        content_type = "image/jpeg"
-    elif image_data[:4] == b'\x89PNG':
-        content_type = "image/png"
-    elif image_data[:4] == b'RIFF':
-        content_type = "image/webp"
-    elif image_data[:6] in (b'GIF87a', b'GIF89a'):
-        content_type = "image/gif"
-    
-    payload = {
-        "object": f"data:{content_type};base64,{base64_image}"
+    # Prepare the file for multipart upload
+    files = {
+        "object": (f"image.{extension}", image_data, mime_type)
     }
     
-    # Make API request
+    # Make API request with multipart/form-data
     try:
         response = requests.post(
             AIORNOT_API_URL,
             headers=headers,
-            json=payload,
+            files=files,  # This automatically sets Content-Type: multipart/form-data with boundary
             timeout=60  # 60 second timeout for large images
         )
     except requests.exceptions.Timeout:
@@ -218,11 +227,17 @@ def analyze_image_bytes(image_data: bytes) -> AIOrNotResult:
     
     # Handle HTTP errors
     if response.status_code != 200:
+        # Try to read response body for debugging
         error_body = None
+        error_text = None
         try:
+            error_text = response.text
             error_body = response.json()
         except:
             pass
+        
+        # Log for debugging
+        print(f"[AIorNot] Error {response.status_code}: {error_text[:500] if error_text else 'No response body'}")
         
         error_messages = {
             400: "Bad request - invalid image format or data",
@@ -242,6 +257,12 @@ def analyze_image_bytes(image_data: bytes) -> AIOrNotResult:
             f"API returned status code {response.status_code}"
         )
         
+        # Include response body in error if available
+        if error_body and isinstance(error_body, dict):
+            detail = error_body.get("detail") or error_body.get("message") or error_body.get("error")
+            if detail:
+                message = f"{message}: {detail}"
+        
         raise AIOrNotAPIError(
             message=message,
             status_code=response.status_code,
@@ -251,8 +272,12 @@ def analyze_image_bytes(image_data: bytes) -> AIOrNotResult:
     # Parse response
     try:
         data = response.json()
-    except ValueError:
-        raise AIOrNotAPIError("Failed to parse API response as JSON")
+    except ValueError as e:
+        # Log the raw response for debugging
+        raw_text = response.text[:500] if response.text else "Empty response"
+        print(f"[AIorNot] JSON Parse Error: {e}")
+        print(f"[AIorNot] Raw response: {raw_text}")
+        raise AIOrNotAPIError(f"Failed to parse API response as JSON: {raw_text[:100]}")
     
     return parse_api_response(data)
 
