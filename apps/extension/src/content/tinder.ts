@@ -45,23 +45,23 @@ function injectStyles() {
     }
     #${BUTTON_ID} {
       bottom: 80px;
-      background: #f54278;
-      box-shadow: 0 4px 16px rgba(245, 66, 120, 0.4);
+      background: #f5f5f0;
+      box-shadow: 0 4px 16px rgba(245, 245, 240, 0.4);
     }
     #${BUTTON_ID}:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 24px rgba(245, 66, 120, 0.5);
-      background: #d63568;
+      box-shadow: 0 6px 24px rgba(245, 245, 240, 0.5);
+      background: #e0e0d8;
     }
     #${CAPTURE_BUTTON_ID} {
       bottom: 140px;
       background: #12121a;
-      border: 1px solid #f54278;
-      box-shadow: 0 4px 16px rgba(245, 66, 120, 0.2);
+      border: 1px solid #f5f5f0;
+      box-shadow: 0 4px 16px rgba(245, 245, 240, 0.2);
     }
     #${CAPTURE_BUTTON_ID}:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 24px rgba(245, 66, 120, 0.3);
+      box-shadow: 0 6px 24px rgba(245, 245, 240, 0.3);
       background: #1a1a24;
     }
     .catfish-btn:active {
