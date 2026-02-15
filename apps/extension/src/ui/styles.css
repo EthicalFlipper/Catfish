@@ -486,7 +486,7 @@ textarea:disabled {
   font-weight: 800;
   line-height: 1;
   font-family: 'SF Mono', 'Fira Code', monospace;
-  text-shadow: 0 0 20px currentColor;
+  text-shadow: 0 0 8px currentColor;
 }
 
 .score-label {
