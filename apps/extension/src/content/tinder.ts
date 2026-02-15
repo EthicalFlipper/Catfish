@@ -1,29 +1,7 @@
 // Catfish Content Script for Tinder Web
-// Injects "Analyze this thread" button and extracts conversation
+// Injects "Analyze this thread" and "Capture profile" buttons
 
-// ===== DEBUG: Prove content script loaded =====
-console.log('[Catfish] tinder content script loaded', location.href)
-document.documentElement.setAttribute('data-catfish-loaded', 'true')
-
-// Inject a temporary debug banner to confirm script is running
-const debugBanner = document.createElement('div')
-debugBanner.id = 'catfish-debug-banner'
-debugBanner.style.cssText = `
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  background: #6366f1;
-  color: white;
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: bold;
-  z-index: 999999;
-  text-align: center;
-`
-debugBanner.textContent = '🐱 Catfish content script injected! (debug banner - remove later)'
-document.body?.appendChild(debugBanner) || document.addEventListener('DOMContentLoaded', () => document.body.appendChild(debugBanner))
-// ===== END DEBUG =====
+console.log('[Catfish] Content script loaded')
 
 const BUTTON_ID = 'catfish-analyze-btn'
 const CAPTURE_BUTTON_ID = 'catfish-capture-btn'
@@ -51,34 +29,40 @@ function injectStyles() {
       right: 20px;
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 12px 16px;
+      gap: 8px;
+      padding: 12px 18px;
       color: white;
       border: none;
-      border-radius: 24px;
-      font-size: 14px;
+      border-radius: 4px;
+      font-size: 12px;
       font-weight: 600;
+      font-family: 'Inter', -apple-system, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
       cursor: pointer;
       transition: all 0.2s ease;
       z-index: 999998;
     }
     #${BUTTON_ID} {
       bottom: 80px;
-      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+      background: #f54278;
+      box-shadow: 0 4px 16px rgba(245, 66, 120, 0.4);
     }
     #${BUTTON_ID}:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
+      box-shadow: 0 6px 24px rgba(245, 66, 120, 0.5);
+      background: #d63568;
     }
     #${CAPTURE_BUTTON_ID} {
       bottom: 140px;
-      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-      box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4);
+      background: #12121a;
+      border: 1px solid #f54278;
+      box-shadow: 0 4px 16px rgba(245, 66, 120, 0.2);
     }
     #${CAPTURE_BUTTON_ID}:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 16px rgba(249, 115, 22, 0.5);
+      box-shadow: 0 6px 24px rgba(245, 66, 120, 0.3);
+      background: #1a1a24;
     }
     .catfish-btn:active {
       transform: translateY(0);
@@ -87,8 +71,9 @@ function injectStyles() {
       opacity: 0.7;
       cursor: wait;
     }
-    .catfish-btn .icon {
-      font-size: 16px;
+    .catfish-btn.success {
+      background: #059669 !important;
+      border-color: #059669 !important;
     }
   `
   document.head.appendChild(style)
@@ -122,13 +107,10 @@ function extractMatchName(): string | undefined {
 
 // Extract messages from the chat
 function extractMessages(): { text: string; count: number } | { error: string } {
-  console.log('[Catfish] Starting message extraction...')
-  
-  // Find message text elements - Tinder uses <span class="text ..."> for message content
-  // Example: <span class="text D(ib) Va(t)">Yes plz</span>
+  // Tinder uses <span class="text ..."> for message content
   const messageSelectors = [
-    'span.text',                    // Primary: span with class "text"
-    '[class*="text"][class*="D("]', // Atomic CSS pattern
+    'span.text',
+    '[class*="text"][class*="D("]',
     '[class*="messageContent"]',
     '[dir="auto"]',
     'span[class*="Va(t)"]',
@@ -139,61 +121,48 @@ function extractMessages(): { text: string; count: number } | { error: string } 
   for (const selector of messageSelectors) {
     try {
       const elements = document.querySelectorAll(selector)
-      console.log(`[Catfish] Selector "${selector}" found ${elements.length} elements`)
       if (elements.length > 0) {
         messageElements = Array.from(elements)
         break
       }
-    } catch (e) {
-      console.log(`[Catfish] Selector "${selector}" failed:`, e)
+    } catch {
+      // Try next selector
     }
   }
   
-  // Fallback: find all spans that look like message text
+  // Fallback: spans with text class
   if (messageElements.length === 0) {
-    console.log('[Catfish] Trying fallback: all spans with text class')
     const allSpans = document.querySelectorAll('span')
     messageElements = Array.from(allSpans).filter(span => {
       const className = span.className || ''
       const text = span.textContent?.trim()
-      // Look for spans with "text" in class and reasonable text content
       return className.includes('text') && 
-             text && 
-             text.length > 0 && 
-             text.length < 500 &&
-             !className.includes('timestamp') &&
-             !className.includes('time')
+             text && text.length > 0 && text.length < 500 &&
+             !className.includes('timestamp') && !className.includes('time')
     })
-    console.log(`[Catfish] Fallback found ${messageElements.length} elements`)
   }
   
-  // Last resort: find any element with text content in the main chat area
+  // Last resort: any text in main area
   if (messageElements.length === 0) {
-    console.log('[Catfish] Trying last resort: any text in main')
     const main = document.querySelector('main')
     if (main) {
       const allElements = main.querySelectorAll('span, div')
       messageElements = Array.from(allElements).filter(el => {
         const text = el.textContent?.trim()
-        const children = el.children.length
-        return text && text.length > 1 && text.length < 500 && children === 0
+        return text && text.length > 1 && text.length < 500 && el.children.length === 0
       })
     }
-    console.log(`[Catfish] Last resort found ${messageElements.length} elements`)
   }
   
   if (messageElements.length === 0) {
-    return { error: 'Could not find messages. Try opening a conversation first, or copy/paste manually.' }
+    return { error: 'Could not find messages. Try opening a conversation first.' }
   }
   
   // Build conversation text
   const messages: string[] = []
   const matchName = extractMatchName() || 'Match'
-  const seenTexts = new Set<string>() // Avoid duplicates
-  
-  // Take last N messages
+  const seenTexts = new Set<string>()
   const recentMessages = messageElements.slice(-MAX_MESSAGES)
-  console.log(`[Catfish] Processing ${recentMessages.length} message elements`)
   
   for (const el of recentMessages) {
     const text = el.textContent?.trim()
@@ -237,26 +206,17 @@ function extractMessages(): { text: string; count: number } | { error: string } 
     return { error: 'Found elements but no text content. Try copy/paste manually.' }
   }
   
-  console.log(`[Catfish] Extracted ${messages.length} messages`)
   return { text: messages.join('\n'), count: messages.length }
 }
 
-// Handle button click
+// Handle button click - extract and send to extension
 async function handleAnalyzeClick(button: HTMLButtonElement) {
-  console.log('[Catfish] Button clicked!')
-  alert('[Catfish DEBUG] Button clicked! Check console for details.')
-  
   button.classList.add('loading')
-  button.textContent = 'Extracting...'
+  button.textContent = 'Analyzing...'
   
   try {
-    console.log('[Catfish] Extracting match name...')
     const matchName = extractMatchName()
-    console.log('[Catfish] Match name:', matchName)
-    
-    console.log('[Catfish] Extracting messages...')
     const result = extractMessages()
-    console.log('[Catfish] Extract result:', result)
     
     const message: ThreadImportMessage = {
       type: 'THREAD_IMPORT',
@@ -270,42 +230,27 @@ async function handleAnalyzeClick(button: HTMLButtonElement) {
     if ('error' in result) {
       message.error = result.error
       message.thread_text = ''
-      console.log('[Catfish] Extraction had error:', result.error)
-      alert('[Catfish] Could not extract messages: ' + result.error)
     } else {
       message.thread_text = result.text
-      console.log(`[Catfish] Extracted ${result.count} messages:`, result.text.substring(0, 200))
-      alert(`[Catfish] Extracted ${result.count} messages! Sending to extension...`)
     }
     
     // Send to background script
-    console.log('[Catfish] Sending message to background:', message.type)
-    chrome.runtime.sendMessage(message, (response) => {
+    chrome.runtime.sendMessage(message, () => {
+      button.classList.remove('loading')
+      button.textContent = 'Analyze Thread'
+      
       if (chrome.runtime.lastError) {
         console.error('[Catfish] Send error:', chrome.runtime.lastError)
-        alert('Catfish: Failed to send to extension: ' + chrome.runtime.lastError.message)
-      } else {
-        console.log('[Catfish] Message sent successfully:', response)
-        alert('[Catfish] Message sent! Open the Catfish side panel to see results.')
+      } else if (!('error' in result)) {
+        // Brief success indication
+        button.classList.add('success')
+        setTimeout(() => button.classList.remove('success'), 1500)
       }
     })
-    
-    // Reset button
-    button.classList.remove('loading')
-    button.innerHTML = '<span class="icon">🐱</span> Analyze this thread'
-    
-    if (!('error' in result)) {
-      // Brief success indication
-      button.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-      setTimeout(() => {
-        button.style.background = ''
-      }, 2000)
-    }
   } catch (err) {
     console.error('[Catfish] Extraction error:', err)
-    alert('[Catfish] Error: ' + (err as Error).message)
     button.classList.remove('loading')
-    button.innerHTML = '<span class="icon">🐱</span> Analyze this thread'
+    button.textContent = 'Analyze Thread'
     
     // Send error message
     chrome.runtime.sendMessage({
@@ -321,21 +266,15 @@ async function handleAnalyzeClick(button: HTMLButtonElement) {
 
 // Find the profile card/image element on Tinder
 function findProfileElement(): { element: Element; bounds: DOMRect } | null {
-  // Tinder profile card selectors (in order of specificity)
   const profileSelectors = [
-    // Profile card in swipe view
     '[class*="profileCard"]',
     '[class*="Bdrs(8px)"][class*="Bgc(#fff)"]',
     '[class*="recCard"]',
-    // Profile image container
     '[class*="StretchedBox"]',
     '[class*="keen-slider__slide"]',
-    // Chat profile header
     '[class*="profileCard__card"]',
-    // Generic profile containers
     '[data-testid="profile"]',
     'main [class*="Pos(r)"][class*="Ovx(h)"]',
-    // Fallback: main content area with large images
     'main img[class*="StretchedBox"]',
     'main [class*="Expand"]',
   ]
@@ -345,46 +284,40 @@ function findProfileElement(): { element: Element; bounds: DOMRect } | null {
       const el = document.querySelector(selector)
       if (el) {
         const bounds = el.getBoundingClientRect()
-        // Only use if it's a reasonable size (at least 100x100 and visible)
         if (bounds.width >= 100 && bounds.height >= 100 && bounds.top < window.innerHeight) {
-          console.log(`[Catfish] Found profile element with selector: ${selector}`, bounds)
           return { element: el, bounds }
         }
       }
-    } catch (e) {
-      // Selector failed, try next
+    } catch {
+      // Try next selector
     }
   }
   
-  // Fallback: find largest image in the main area
-  const images = document.querySelectorAll('main img')
+  // Fallback: largest image in main area
+  const images = Array.from(document.querySelectorAll('main img')) as HTMLImageElement[]
   let largestImg: HTMLImageElement | null = null
   let largestArea = 0
   
-  images.forEach(img => {
+  for (const img of images) {
     const bounds = img.getBoundingClientRect()
     const area = bounds.width * bounds.height
     if (area > largestArea && bounds.width > 150 && bounds.height > 150) {
       largestArea = area
-      largestImg = img as HTMLImageElement
+      largestImg = img
     }
-  })
+  }
   
   if (largestImg) {
-    const bounds = (largestImg as HTMLImageElement).getBoundingClientRect()
-    console.log('[Catfish] Using largest image as profile', bounds)
-    return { element: largestImg, bounds }
+    return { element: largestImg, bounds: largestImg.getBoundingClientRect() }
   }
   
   return null
 }
 
-// Handle capture button click
+// Handle capture button click - screenshot and send to extension
 function handleCaptureClick(button: HTMLButtonElement) {
-  console.log('[Catfish] Capture button clicked!')
-  
   button.classList.add('loading')
-  button.textContent = 'Finding profile...'
+  button.textContent = 'Capturing...'
   
   // Find the profile element to get crop bounds
   const profileResult = findProfileElement()
@@ -392,7 +325,6 @@ function handleCaptureClick(button: HTMLButtonElement) {
   let cropBounds = null
   if (profileResult) {
     const { bounds } = profileResult
-    // Convert to absolute pixel coordinates and add small padding
     const padding = 10
     cropBounds = {
       x: Math.max(0, bounds.left - padding) * window.devicePixelRatio,
@@ -400,55 +332,41 @@ function handleCaptureClick(button: HTMLButtonElement) {
       width: (bounds.width + padding * 2) * window.devicePixelRatio,
       height: (bounds.height + padding * 2) * window.devicePixelRatio,
     }
-    console.log('[Catfish] Crop bounds:', cropBounds)
-  } else {
-    console.log('[Catfish] No profile element found, will capture full page')
   }
-  
-  button.textContent = 'Capturing...'
   
   // Send message to background to capture the tab
   chrome.runtime.sendMessage({
     type: 'CAPTURE_VISIBLE_TAB',
     site: 'tinder',
     page_url: window.location.href,
-    cropBounds,  // Send crop info
+    cropBounds,
     devicePixelRatio: window.devicePixelRatio,
   }, (response) => {
     button.classList.remove('loading')
-    button.innerHTML = '<span class="icon">📸</span> Capture profile'
+    button.textContent = 'Capture Profile'
     
     if (chrome.runtime.lastError) {
       console.error('[Catfish] Capture error:', chrome.runtime.lastError)
-      alert('Catfish: Failed to capture - ' + chrome.runtime.lastError.message)
     } else if (response?.error) {
       console.error('[Catfish] Capture error:', response.error)
-      alert('Catfish: ' + response.error)
     } else {
-      console.log('[Catfish] Screenshot captured successfully')
       // Brief success indication
-      button.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-      setTimeout(() => {
-        button.style.background = ''
-      }, 1500)
-      alert('[Catfish] Profile captured! Open the Catfish side panel → Image tab to analyze.')
+      button.classList.add('success')
+      setTimeout(() => button.classList.remove('success'), 1500)
     }
   })
 }
 
 // Create and inject the buttons
 function injectButton() {
-  console.log('[Catfish] Attempting button injection...')
-  
   // Inject analyze thread button
   if (!document.getElementById(BUTTON_ID)) {
     const button = document.createElement('button')
     button.id = BUTTON_ID
     button.className = 'catfish-btn'
-    button.innerHTML = '<span class="icon">🐱</span> Analyze thread'
+    button.textContent = 'Analyze Thread'
     button.addEventListener('click', () => handleAnalyzeClick(button))
     document.body.appendChild(button)
-    console.log('[Catfish] Analyze button injected!')
   }
   
   // Inject capture profile button
@@ -456,10 +374,9 @@ function injectButton() {
     const captureBtn = document.createElement('button')
     captureBtn.id = CAPTURE_BUTTON_ID
     captureBtn.className = 'catfish-btn'
-    captureBtn.innerHTML = '<span class="icon">📸</span> Capture profile'
+    captureBtn.textContent = 'Capture Profile'
     captureBtn.addEventListener('click', () => handleCaptureClick(captureBtn))
     document.body.appendChild(captureBtn)
-    console.log('[Catfish] Capture button injected!')
   }
 }
 
@@ -473,38 +390,29 @@ function removeButton() {
 
 // Initialize
 function init() {
-  console.log('[Catfish] init() called')
   injectStyles()
-  
-  // Initial injection attempt - immediate and delayed
   injectButton()
+  
+  // Re-inject on delays for SPA
   setTimeout(injectButton, 1000)
   setTimeout(injectButton, 3000)
   
-  // Watch for SPA navigation/rerenders - re-inject if buttons disappear
-  const observer = new MutationObserver((_mutations) => {
-    const analyzeExists = document.getElementById(BUTTON_ID)
-    const captureExists = document.getElementById(CAPTURE_BUTTON_ID)
-    if (!analyzeExists || !captureExists) {
-      console.log('[Catfish] Button(s) missing, re-injecting...')
+  // Watch for SPA navigation/rerenders
+  const observer = new MutationObserver(() => {
+    if (!document.getElementById(BUTTON_ID) || !document.getElementById(CAPTURE_BUTTON_ID)) {
       injectButton()
     }
   })
   
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  })
+  observer.observe(document.body, { childList: true, subtree: true })
   
-  // Also try on URL changes (SPA navigation)
+  // Handle SPA URL changes
   let lastUrl = location.href
   setInterval(() => {
     if (location.href !== lastUrl) {
-      console.log('[Catfish] URL changed, re-injecting button')
       lastUrl = location.href
       setTimeout(injectButton, 500)
     }
-    // Periodic check to ensure buttons exist
     if (!document.getElementById(BUTTON_ID) || !document.getElementById(CAPTURE_BUTTON_ID)) {
       injectButton()
     }
